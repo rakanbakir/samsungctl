@@ -1,3 +1,14 @@
+=======================
+This project is no longer being developed
+=======================
+
+**The repository is now archived and read-only. Feel free to continue the development in a fork.**
+
+The most prominent fork as of the archival seems to be:
+https://github.com/kdschlosser/samsungctl
+
+----
+
 ==========
 samsungctl
 ==========
