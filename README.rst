@@ -51,6 +51,14 @@ It's possible to use the command line tool without installation:
 
     $ python -m samsungctl
 
+There is also a GUI remote control application:
+
+::
+
+    $ python gui_remote.py
+
+The GUI allows entering and updating the TV IP address, and provides buttons for all supported key codes organized in tabs (Basic, Navigation, Menu, Input, Numbers, Colors, Media, Aspect, Other).
+
 Command line usage
 ==================
 
