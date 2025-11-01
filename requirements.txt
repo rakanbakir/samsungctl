@@ -1,0 +1,4 @@
+websocket-client>=0.57.0
+
+# Optional dependencies:
+# curses  # For interactive UI (built-in on Unix systems)

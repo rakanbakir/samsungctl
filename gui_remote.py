@@ -1,57 +1,6 @@
 #!/usr/bin/env python3
 
 import tkinter as tk
-from tkinter import messagebox
-import samsungctl
-import json
-import os
-
-class SamsungRemoteGUI:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Samsung TV Remote")
-        self.config = self.load_config()
-        self.remote = None
-
-        # Create buttons
-        self.create_buttons()
-
-    def load_config(self):
-        config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                return json.load(f)
-        else:
-            messagebox.showerror("Config Error", "Config file not found. Please run samsungctl command line first to set up.")
-            self.root.quit()
-            return None
-
-    def update_ip(self):
-        new_ip = self.ip_entry.get()
-        if new_ip:
-            self.config["host"] = new_ip
-            self.save_config()
-            messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
-        else:
-            messagebox.showerror("Error", "Please enter a valid IP address")
-
-    def save_config(self):
-        config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, 'w') as f:
-            json.dump(self.config, f, indent=4)
-
-    def send_key(self, key):
-        try:
-            with samsungctl.Remote(self.config) as remote:
-                remote.control(key)
-            print(f"Sent {key}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to send {key}: {str(e)}")
-
-    #!/usr/bin/env python3
-
-import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 import samsungctl
@@ -63,6 +12,17 @@ class SamsungRemoteGUI:
         self.root = root
         self.root.title("Samsung TV Remote")
         self.config = self.load_config()
+
+        # Open persistent connection
+        try:
+            self.remote = samsungctl.Remote(self.config).__enter__()
+        except Exception as e:
+            messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
+            self.root.quit()
+            return
+
+        # Bind close event
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(self.root)
@@ -81,6 +41,11 @@ class SamsungRemoteGUI:
         self.create_media_tab()
         self.create_aspect_tab()
         self.create_other_tab()
+
+    def on_close(self):
+        if hasattr(self, 'remote'):
+            self.remote.__exit__(None, None, None)
+        self.root.destroy()
 
     def load_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
@@ -121,9 +86,7 @@ class SamsungRemoteGUI:
 
     def send_key(self, key):
         try:
-            with samsungctl.Remote(self.config) as remote:
-                remote.control(key)
-            print(f"Sent {key}")
+            self.remote.control(key)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to send {key}: {str(e)}")
 
@@ -301,11 +264,6 @@ class SamsungRemoteGUI:
         for i, (text, key) in enumerate(buttons):
             btn = tk.Button(tab, text=text, command=lambda k=key: self.send_key(k), width=12, height=2)
             btn.grid(row=i//5, column=i%5, padx=5, pady=5)
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = SamsungRemoteGUI(root)
-    root.mainloop()
 
 if __name__ == "__main__":
     root = tk.Tk()
