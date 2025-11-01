@@ -1,8 +1,8 @@
 =======================
-This project is no longer being developed
+This project has been updated
 =======================
 
-**The repository is now archived and read-only. Feel free to continue the development in a fork.**
+**Recent updates have added support for modern Samsung TVs with persistent pairing and automatic token management. The repository remains available for continued development.**
 
 The most prominent fork as of the archival seems to be:
 https://github.com/kdschlosser/samsungctl
@@ -21,7 +21,7 @@ Dependencies
 ============
 
 - Python 3
-- ``websocket-client`` (optional, for 2016+ TVs)
+- ``websocket-client`` (required for websocket method on 2016+ TVs)
 - ``curses`` (optional, for the interactive mode)
 
 Installation
@@ -31,13 +31,19 @@ samsungctl can be installed using `pip <(https://pip.pypa.io/>`_:
 
 ::
 
-    # pip install samsungctl
+    # pip install samsungctl[websocket]
 
 Alternatively you can clone the Git repository and run:
 
 ::
 
     # python setup.py install
+
+For websocket support, install websocket-client:
+
+::
+
+    # pip install websocket-client
 
 It's possible to use the command line tool without installation:
 
@@ -99,6 +105,11 @@ The settings can be loaded from a configuration file. The file is searched from
 ``/etc/samsungctl.conf`` in this order. A simple default configuration is
 bundled with the source as `samsungctl.conf <samsungctl.conf>`_.
 
+**Persistent Pairing**: For websocket connections to modern TVs, the tool automatically
+retrieves and saves an authentication token after the first authorization. Subsequent
+runs use the saved token for direct connection without re-authorization. The config
+is saved to ``~/.config/samsungctl.conf`` after successful connection.
+
 Library usage
 =============
 
@@ -129,6 +140,8 @@ name         string  Name of the remote controller.
 description  string  Remote controller description.
 id           string  Additional remote controller ID.
 timeout      int     Timeout in seconds. ``0`` means no timeout.
+token        string  Authentication token (auto-retrieved for websocket).
+paired       bool    Pairing status (auto-set for websocket).
 ===========  ======  ===========================================
 
 The ``Remote`` object is very simple and you only need the ``control(key)``
@@ -174,6 +187,20 @@ This simple program opens and closes the menu a few times.
         for i in range(10):
             remote.control("KEY_MENU")
             time.sleep(0.5)
+
+For modern TVs, use websocket method with automatic SSL fallback:
+
+.. code-block:: python
+
+    config = {
+        "name": "samsungctl",
+        "host": "192.168.0.10",
+        "method": "websocket",
+        "timeout": 0,
+    }
+
+    with samsungctl.Remote(config) as remote:
+        remote.control("KEY_VOLUP")  # First run prompts for auth, saves token
 
 Key codes
 =========
@@ -223,7 +250,8 @@ KEY_CONTENTS       SmartHub
 =================  ============
 
 Please note that some codes are different on the 2016+ TVs. For example,
-``KEY_POWEROFF`` is ``KEY_POWER`` on the newer TVs.
+``KEY_POWEROFF`` is ``KEY_POWER`` on the newer TVs. Use the ``websocket`` method
+for modern TVs, which automatically handles SSL connections and token authentication.
 
 References
 ==========
@@ -235,3 +263,4 @@ the only implementation. Here is the list of things that inspired samsungctl.
 - https://gist.github.com/danielfaust/998441
 - https://github.com/Bntdumas/SamsungIPRemote
 - https://github.com/kyleaa/homebridge-samsungtv2016
+- https://github.com/kdschlosser/samsungctl (fork with additional features)

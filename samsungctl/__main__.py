@@ -20,6 +20,8 @@ def _read_config():
         "id": "",
         "method": "legacy",
         "timeout": 0,
+        "token": None,
+        "paired": False,
     })
 
     file_loaded = False
@@ -59,6 +61,13 @@ def _read_config():
         config.update(config_json)
 
     return config
+
+
+def _save_config(config):
+    path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        json.dump(dict(config), f, indent=4)
 
 
 def main():
@@ -117,6 +126,8 @@ def main():
                 interactive.run(remote)
             elif len(args.key) == 0:
                 logging.warning("Warning: No keys specified.")
+        # Save config after successful connection
+        _save_config(config)
     except exceptions.ConnectionClosed:
         logging.error("Error: Connection closed!")
     except exceptions.AccessDenied:
