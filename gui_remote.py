@@ -139,28 +139,29 @@ class ModernSamsungRemote:
         # Bind scroll events to update indicator
         self.v_scrollbar.config(command=lambda *args: [self.canvas.yview(*args), self.update_scroll_indicator()])
 
-        # Mouse wheel scrolling - improved implementation
+        # Mouse wheel scrolling - bind to root window for maximum coverage
         def on_mousewheel(event):
-            if self.canvas.winfo_exists() and self.canvas.winfo_viewable():
-                # Smoother scrolling - scroll by 3 units instead of 1
-                delta = int(-1*(event.delta/120)) * 3
+            try:
+                delta = -1 * (event.delta // 120)  # -1 for down, 1 for up
                 self.canvas.yview_scroll(delta, "units")
-                return "break"  # Prevent event propagation
+                self.update_scroll_indicator()
+                return "break"  # Consume the event
+            except Exception as e:
+                print(f"Mouse wheel error: {e}")
+                return "break"
 
         def on_shift_mousewheel(event):
-            if self.canvas.winfo_exists() and self.canvas.winfo_viewable():
-                # Horizontal scrolling with Shift+wheel
-                delta = int(-1*(event.delta/120)) * 3
+            try:
+                delta = -1 * (event.delta // 120)
                 self.canvas.xview_scroll(delta, "units")
-                return "break"  # Prevent event propagation
+                return "break"
+            except Exception as e:
+                print(f"Shift mouse wheel error: {e}")
+                return "break"
 
-        # Bind mouse wheel to canvas with better event handling
-        self.canvas.bind_all("<MouseWheel>", on_mousewheel, add="+")
-        self.canvas.bind_all("<Shift-MouseWheel>", on_shift_mousewheel, add="+")
-
-        # Also bind to the main window for better coverage
-        self.root.bind_all("<MouseWheel>", on_mousewheel, add="+")
-        self.root.bind_all("<Shift-MouseWheel>", on_shift_mousewheel, add="+")
+        # Bind to root window - this catches mouse wheel events anywhere in the window
+        self.root.bind("<MouseWheel>", on_mousewheel)
+        self.root.bind("<Shift-MouseWheel>", on_shift_mousewheel)
 
         # Keyboard scrolling (use different keys to avoid conflicts)
         self.root.bind("<Prior>", lambda e: self.canvas.yview_scroll(-1, "pages"))  # Page Up
