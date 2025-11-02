@@ -1,0 +1,14 @@
+post_install() {
+    echo "SamsungCtl has been installed."
+    echo "You can run it with: samsungctl"
+    echo "Configuration file: /etc/samsungctl.conf"
+    echo "Or find it in your application menu."
+}
+
+post_upgrade() {
+    echo "SamsungCtl has been upgraded."
+}
+
+pre_remove() {
+    echo "Removing SamsungCtl..."
+}

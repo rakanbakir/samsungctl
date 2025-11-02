@@ -3,3 +3,25 @@ dist/
 *.egg-info/
 *.pyc
 *.swp
+
+# Arch Linux packaging
+*.pkg.tar.zst
+*.pkg.tar.xz
+*.pkg.tar.gz
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+pkg/
+src/
+*.part
+*.sig
+*.asc
+# Note: .SRCINFO is tracked as it's part of Arch package metadata
+
+# Editor and temporary files
+*.swp
+*.swo
+*~
+*.tmp
+*.bak
+.cache/

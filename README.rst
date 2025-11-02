@@ -45,6 +45,31 @@ For websocket support, install websocket-client:
 
     # pip install websocket-client
 
+Arch Linux Package
+==================
+
+For Arch Linux users, you can install samsungctl as a native package:
+
+::
+
+    # Clone the repository
+    git clone https://github.com/Ape/samsungctl.git
+    cd samsungctl
+
+    # Build and install the package
+    ./build-pkg.sh
+    sudo pacman -U samsungctl-0.7.1-1-any.pkg.tar.zst
+
+    # Or uninstall later
+    ./uninstall-pkg.sh
+
+The package includes:
+- System-wide installation to ``/usr/bin/samsungctl``
+- Configuration file at ``/etc/samsungctl.conf``
+- GUI remote application at ``/usr/share/samsungctl/samsungctl_remote_gui.py``
+- Desktop menu entries for both CLI and GUI versions
+- Icon and documentation
+
 It's possible to use the command line tool without installation:
 
 ::
@@ -55,7 +80,7 @@ There is also a modern GUI remote control application with an eye-catching desig
 
 ::
 
-    $ python gui_remote.py
+    $ python samsungctl_remote_gui.py
 
 The GUI can run without a configuration file and will show connection status. Use the IP configuration field at the bottom to set your TV's IP address.
 
