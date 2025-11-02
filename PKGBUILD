@@ -1,4 +1,4 @@
-# Maintainer: Lauri Niskanen <ape@ape3000.com>
+# Maintainer: Rakan Bakir <rakanbakir@github.com>
 pkgname=samsungctl
 pkgver=0.7.1
 pkgrel=1
