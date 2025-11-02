@@ -57,6 +57,8 @@ There is also a modern GUI remote control application with an eye-catching desig
 
     $ python gui_remote.py
 
+The GUI can run without a configuration file and will show connection status. Use the IP configuration field at the bottom to set your TV's IP address.
+
 The modern GUI features:
 - Sleek dark theme with Samsung blue accent colors
 - Professional header with Samsung logo and connection status indicator
@@ -68,7 +70,27 @@ The modern GUI features:
 - Persistent TV connection for instant response
 - **Scrollable interface** with vertical and horizontal scrollbars for easy navigation
 - **Keyboard scrolling support** (arrow keys, Page Up/Down, mouse wheel)
+- **Improved mouse scrolling** with smoother 3x speed and Shift+wheel for horizontal scrolling
+- **Scroll-to-top indicator** - click the ▲ button in top-right when scrolled down
+- **Back button** added to function controls (sends KEY_RETURN)
 - **Resizable window** that adapts to different screen sizes
+- **App shortcuts** for popular streaming services (YouTube, Netflix, Prime Video, Disney+, HBO Max, Hulu)
+  *App buttons open Smart Hub - navigate to your desired app using arrow keys and OK button*
+
+**Keyboard Shortcuts:**
+- **P** - Power toggle
+- **M** - Mute
+- **Space** - Play/Pause
+- **=/-** - Volume up/down
+- **C/V** - Channel up/down
+- **Arrow Keys** - Navigation
+- **Enter** - OK/Select
+- **Escape** - Return/Back
+- **0-9** - Direct channel numbers
+
+**Mouse Controls:**
+- **Mouse Wheel** - Vertical scrolling (3x speed)
+- **Shift + Mouse Wheel** - Horizontal scrolling
 
 Command line usage
 ==================

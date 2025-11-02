@@ -17,6 +17,15 @@ class ModernSamsungRemote:
 
         # Load configuration
         self.config = self.load_config()
+        if self.config is None:
+            # Config loading failed, but continue with default config
+            self.config = {
+                "name": "samsungctl",
+                "host": "",
+                "method": "websocket",
+                "port": 8001,
+                "timeout": 5
+            }
 
         # Load logo
         try:
@@ -25,15 +34,15 @@ class ModernSamsungRemote:
             print(f"Could not load logo: {e}")
             self.logo_image = None
 
-        # Initialize connection
-        self.remote = None
-        self.connect_to_tv()
-
         # Setup modern styling
         self.setup_styles()
 
         # Create scrollable canvas
         self.create_scrollable_canvas()
+
+        # Initialize connection
+        self.remote = None
+        self.connect_to_tv()
 
         # Create main layout inside scrollable frame
         self.create_header()
@@ -89,13 +98,23 @@ class ModernSamsungRemote:
         self.v_scrollbar = ttk.Scrollbar(self.main_container, orient=tk.VERTICAL, command=self.canvas.yview)
         self.h_scrollbar = ttk.Scrollbar(self.main_container, orient=tk.HORIZONTAL, command=self.canvas.xview)
 
+        # Pack the canvas and scrollbars
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+
         # Configure canvas
         self.canvas.configure(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
 
-        # Pack scrollbars and canvas
-        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Create scroll position indicator
+        self.scroll_indicator = tk.Label(self.main_container, text="▲", font=('Segoe UI', 12),
+                                       bg=self.accent_color, fg='white', width=2, height=1)
+        self.scroll_indicator.place(relx=0.95, rely=0.05, anchor='center')
+        self.scroll_indicator.bind("<Button-1>", lambda e: self.scroll_to_top())
+        self.scroll_indicator.config(cursor="hand2")
+        
+        # Initially hide the indicator
+        self.scroll_indicator.place_forget()
 
         # Create frame inside canvas for content
         self.scrollable_frame = ttk.Frame(self.canvas, style='Card.TFrame')
@@ -106,33 +125,60 @@ class ModernSamsungRemote:
         def on_frame_configure(event):
             # Update scroll region to encompass the inner frame
             self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            self.update_scroll_indicator()
 
         def on_canvas_configure(event):
             # Resize the inner frame to match canvas width
-            self.canvas.itemconfig(self.canvas.find_withtag("all")[0], width=event.width)
+            if self.canvas.winfo_exists():
+                self.canvas.itemconfig(self.canvas.find_withtag("all")[0], width=event.width)
 
         # Bind events
         self.scrollable_frame.bind("<Configure>", on_frame_configure)
         self.canvas.bind("<Configure>", on_canvas_configure)
+        
+        # Bind scroll events to update indicator
+        self.v_scrollbar.config(command=lambda *args: [self.canvas.yview(*args), self.update_scroll_indicator()])
 
-        # Mouse wheel scrolling
+        # Mouse wheel scrolling - improved implementation
         def on_mousewheel(event):
-            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            if self.canvas.winfo_exists() and self.canvas.winfo_viewable():
+                # Smoother scrolling - scroll by 3 units instead of 1
+                delta = int(-1*(event.delta/120)) * 3
+                self.canvas.yview_scroll(delta, "units")
+                return "break"  # Prevent event propagation
 
         def on_shift_mousewheel(event):
-            self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+            if self.canvas.winfo_exists() and self.canvas.winfo_viewable():
+                # Horizontal scrolling with Shift+wheel
+                delta = int(-1*(event.delta/120)) * 3
+                self.canvas.xview_scroll(delta, "units")
+                return "break"  # Prevent event propagation
 
-        # Bind mouse wheel to canvas
-        self.canvas.bind_all("<MouseWheel>", on_mousewheel)
-        self.canvas.bind_all("<Shift-MouseWheel>", on_shift_mousewheel)
+        # Bind mouse wheel to canvas with better event handling
+        self.canvas.bind_all("<MouseWheel>", on_mousewheel, add="+")
+        self.canvas.bind_all("<Shift-MouseWheel>", on_shift_mousewheel, add="+")
 
-        # Keyboard scrolling
-        self.root.bind("<Up>", lambda e: self.canvas.yview_scroll(-1, "units"))
-        self.root.bind("<Down>", lambda e: self.canvas.yview_scroll(1, "units"))
-        self.root.bind("<Left>", lambda e: self.canvas.xview_scroll(-1, "units"))
-        self.root.bind("<Right>", lambda e: self.canvas.xview_scroll(1, "units"))
+        # Also bind to the main window for better coverage
+        self.root.bind_all("<MouseWheel>", on_mousewheel, add="+")
+        self.root.bind_all("<Shift-MouseWheel>", on_shift_mousewheel, add="+")
+
+        # Keyboard scrolling (use different keys to avoid conflicts)
         self.root.bind("<Prior>", lambda e: self.canvas.yview_scroll(-1, "pages"))  # Page Up
         self.root.bind("<Next>", lambda e: self.canvas.yview_scroll(1, "pages"))    # Page Down
+        self.root.bind("<Shift-Up>", lambda e: self.canvas.yview_scroll(-1, "units"))
+        self.root.bind("<Shift-Down>", lambda e: self.canvas.yview_scroll(1, "units"))
+        self.root.bind("<Shift-Left>", lambda e: self.canvas.xview_scroll(-1, "units"))
+        self.root.bind("<Shift-Right>", lambda e: self.canvas.xview_scroll(1, "units"))
+
+    def send_key(self, key):
+        """Send a key command to the TV"""
+        if self.remote:
+            try:
+                self.remote.control(key)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to send command: {str(e)}")
+        else:
+            messagebox.showwarning("Not Connected", "Please connect to TV first")
 
     def connect_to_tv(self):
         """Establish connection to TV"""
@@ -167,8 +213,9 @@ class ModernSamsungRemote:
         subtitle_label.pack(anchor=tk.W)
 
         # Connection status
-        status_color = '#00ff00' if self.connection_status == "Connected" else '#ff4444'
-        status_label = tk.Label(header_frame, text=f"● {self.connection_status}",
+        status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else "Disconnected")
+        status_color = '#ff4444' if not self.config.get("host") else ('#00ff00' if self.connection_status == "Connected" else '#ff4444')
+        status_label = tk.Label(header_frame, text=f"● {status_text}",
                                font=('Segoe UI', 8), fg=status_color, bg='#0078d4')
         status_label.pack(side=tk.RIGHT, padx=15, anchor=tk.S)
 
@@ -253,10 +300,13 @@ class ModernSamsungRemote:
         ]
 
         for i, (symbol, key) in enumerate(media_controls):
-            media_btn = self.create_round_button(media_frame, symbol, key, 12)
+            def make_media_command(k):
+                return lambda: self.send_key(k)
+            media_btn = tk.Button(media_frame, text=symbol, command=make_media_command(key),
+                                 font=('Segoe UI', 12, 'bold'), bg=self.button_bg, fg=self.text_color,
+                                 width=4, height=2, relief='raised', bd=2, takefocus=1)
             media_btn.grid(row=0, column=i, padx=5)
-            # Override the default button settings for media controls
-            media_btn.config(width=4, height=2)
+            self.add_button_hover(media_btn, self.button_hover, self.button_bg)
 
         # Number pad
         num_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -273,7 +323,9 @@ class ModernSamsungRemote:
         for i, row in enumerate(numbers):
             for j, num in enumerate(row):
                 if num:  # Only create button if there's a number
-                    num_btn = tk.Button(num_frame, text=num, command=lambda n=num: self.send_key(f"KEY_{n}"),
+                    def make_num_command(n):
+                        return lambda: self.send_key(f"KEY_{n}")
+                    num_btn = tk.Button(num_frame, text=num, command=make_num_command(num),
                                        font=('Segoe UI', 12, 'bold'), bg=self.button_bg, fg=self.text_color,
                                        width=4, height=2, relief='raised', bd=1, takefocus=1)
                     num_btn.grid(row=i, column=j, padx=3, pady=3, sticky='nsew')
@@ -299,7 +351,9 @@ class ModernSamsungRemote:
         ]
 
         for color_name, color_code, key in colors:
-            color_btn = tk.Button(color_frame, text=color_name, command=lambda k=key: self.send_key(k),
+            def make_color_command(k):
+                return lambda: self.send_key(k)
+            color_btn = tk.Button(color_frame, text=color_name, command=make_color_command(key),
                                  font=('Segoe UI', 10, 'bold'), bg=color_code, fg='white',
                                  width=6, height=2, relief='raised', bd=2, takefocus=1)
             color_btn.pack(side=tk.LEFT, padx=5)
@@ -314,7 +368,7 @@ class ModernSamsungRemote:
             ('Home', 'KEY_HOME'),
             ('Guide', 'KEY_GUIDE'),
             ('Info', 'KEY_INFO'),
-            ('Exit', 'KEY_EXIT'),
+            ('Back', 'KEY_RETURN'),
             ('Mute', 'KEY_MUTE')
         ]
 
@@ -322,7 +376,9 @@ class ModernSamsungRemote:
         for i, (func_name, key) in enumerate(functions):
             row = i // 3
             col = i % 3
-            func_btn = tk.Button(func_frame, text=func_name, command=lambda k=key: self.send_key(k),
+            def make_func_command(k):
+                return lambda: self.send_key(k)
+            func_btn = tk.Button(func_frame, text=func_name, command=make_func_command(key),
                                 font=('Segoe UI', 9), bg=self.button_bg, fg=self.text_color,
                                 width=8, height=2, relief='raised', bd=1, takefocus=1)
             func_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
@@ -400,8 +456,8 @@ class ModernSamsungRemote:
         self.root.bind('<space>', lambda e: self.send_key("KEY_PLAY"))  # Space for play/pause
         self.root.bind('p', lambda e: self.send_key("KEY_POWER"))
         self.root.bind('m', lambda e: self.send_key("KEY_MUTE"))
-        self.root.bind('<plus>', lambda e: self.send_key("KEY_VOLUP"))
-        self.root.bind('<minus>', lambda e: self.send_key("KEY_VOLDOWN"))
+        self.root.bind('=', lambda e: self.send_key("KEY_VOLUP"))  # = key for volume up
+        self.root.bind('-', lambda e: self.send_key("KEY_VOLDOWN"))  # - key for volume down
         self.root.bind('c', lambda e: self.send_key("KEY_CHUP"))
         self.root.bind('v', lambda e: self.send_key("KEY_CHDOWN"))
 
@@ -411,11 +467,14 @@ class ModernSamsungRemote:
     def load_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
         if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                return json.load(f)
+            try:
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Error loading config: {e}")
+                return None
         else:
-            messagebox.showerror("Config Error", "Config file not found. Please run samsungctl command line first to set up.")
-            self.root.quit()
+            print("Config file not found. Using default settings.")
             return None
 
     def update_ip(self):
@@ -435,12 +494,27 @@ class ModernSamsungRemote:
         with open(config_path, 'w') as f:
             json.dump(self.config, f, indent=4)
 
-    def send_key(self, key):
+    def update_scroll_indicator(self):
+        """Update the scroll position indicator"""
+        if not self.canvas.winfo_exists():
+            return
+            
         try:
-            if self.remote:
-                self.remote.control(key)
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to send {key}: {str(e)}")
+            # Get scroll position (0.0 to 1.0)
+            scroll_pos = self.canvas.yview()[0]
+            
+            if scroll_pos > 0.1:  # Show indicator when scrolled down
+                self.scroll_indicator.place(relx=0.95, rely=0.05, anchor='center')
+            else:
+                self.scroll_indicator.place_forget()
+        except:
+            pass
+
+    def scroll_to_top(self):
+        """Scroll to the top of the interface"""
+        if self.canvas.winfo_exists():
+            self.canvas.yview_moveto(0.0)
+            self.update_scroll_indicator()
 
     def on_close(self):
         if self.remote:
