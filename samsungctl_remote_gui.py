@@ -7,6 +7,7 @@ import samsungctl
 import json
 import os
 import logging
+import time
 from datetime import datetime
 
 # Configure logging
@@ -81,6 +82,9 @@ class ModernSamsungRemote:
         # Initialize command history
         self.command_history = []
         self.max_history = 10
+
+        # Load app sequences from config
+        self.app_sequences = self.config.get('app_sequences', {}) if self.config else {}
 
         # Create main layout inside scrollable frame
         self.create_header()
@@ -535,30 +539,51 @@ class ModernSamsungRemote:
                 func_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
                 self.add_button_hover(func_btn, self.button_hover, self.button_bg)
 
-        # App shortcuts section
-        apps_frame = ttk.Frame(main_frame, style='Card.TFrame')
-        apps_frame.pack(pady=10)
+        self.add_button_hover(func_btn, self.button_hover, self.button_bg)
 
-        apps_label = tk.Label(apps_frame, text="Quick Apps", font=('Segoe UI', 10, 'bold'),
-                             fg=self.text_color, bg=self.bg_color)
-        apps_label.pack(anchor=tk.W, pady=(0, 5))
+        # Picture/Sound settings section
+        settings_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        settings_frame.pack(pady=10)
 
-        # Common app shortcuts
-        app_shortcuts = [
-            ("🎬", "Netflix", "KEY_RED"),  # Using color keys as placeholders
-            ("📺", "YouTube", "KEY_GREEN"),
-            ("🎵", "Spotify", "KEY_YELLOW"),
-            ("🎮", "Gaming", "KEY_BLUE")
+        settings_label = tk.Label(settings_frame, text="Picture/Sound Settings", font=('Segoe UI', 10, 'bold'),
+                                 fg=self.text_color, bg=self.bg_color)
+        settings_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Picture mode buttons
+        picture_modes = [
+            ("Standard", "Standard"),
+            ("Movie", "Movie"),
+            ("Dynamic", "Dynamic"),
+            ("Game", "Game")
         ]
 
-        for i, (icon, app_name, key) in enumerate(app_shortcuts):
-            def make_app_command(k, name):
-                return lambda: self.launch_app(k, name)
-            app_btn = tk.Button(apps_frame, text=f"{icon} {app_name}", command=make_app_command(key, app_name),
+        for i, (mode_name, mode_key) in enumerate(picture_modes):
+            def make_picture_command(name):
+                return lambda: self.set_picture_mode(name)
+            pic_btn = tk.Button(settings_frame, text=mode_name, command=make_picture_command(mode_key),
                                font=('Segoe UI', 8), bg=self.button_bg, fg=self.text_color,
-                               width=12, height=1, relief='raised', bd=1, takefocus=1)
-            app_btn.pack(side=tk.LEFT, padx=2)
-            self.add_button_hover(app_btn, self.button_hover, self.button_bg)
+                               width=10, height=1, relief='raised', bd=1, takefocus=1)
+            pic_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(pic_btn, self.button_hover, self.button_bg)
+
+        # Input source selector
+        input_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        input_frame.pack(pady=10)
+
+        input_label = tk.Label(input_frame, text="Input Sources", font=('Segoe UI', 10, 'bold'),
+                              fg=self.text_color, bg=self.bg_color)
+        input_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Common input sources
+        inputs = [("TV", "KEY_TV"), ("HDMI1", "KEY_HDMI1"), ("HDMI2", "KEY_HDMI2"), ("HDMI3", "KEY_HDMI3")]
+        for i, (input_name, key) in enumerate(inputs):
+            def make_input_command(k, name):
+                return lambda: self.switch_input(k, name)
+            input_btn = tk.Button(input_frame, text=input_name, command=make_input_command(key, input_name),
+                                font=('Segoe UI', 7), bg=self.button_bg, fg=self.text_color,
+                                width=6, height=1, relief='raised', bd=1, takefocus=1)
+            input_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(input_btn, self.button_hover, self.button_bg)
 
     def create_footer(self):
         """Create footer with IP configuration"""
@@ -669,16 +694,17 @@ class ModernSamsungRemote:
             logging.warning("Attempted to update IP with empty value")
             messagebox.showerror("Error", "Please enter a valid IP address")
 
-    def launch_app(self, key, app_name):
-        """Launch a specific app using the provided key sequence"""
-        logging.info(f"Launching app: {app_name}")
+    def switch_input(self, key, input_name):
+        """Switch to a specific input source"""
+        logging.info(f"Switching to input: {input_name}")
         try:
-            # For now, just send the key - this may need to be customized based on TV menu layout
-            self.send_key(key)
-            logging.info(f"App launch command sent for: {app_name}")
+            self.send_key("KEY_SOURCE")  # Open input selector
+            # Navigate to desired input (this may need adjustment based on TV menu layout)
+            self.root.after(500, lambda: self.send_key(key))
+            logging.info(f"Input switch command sent for: {input_name}")
         except Exception as e:
-            logging.error(f"Failed to launch app {app_name}: {e}")
-            messagebox.showerror("App Launch Error", f"Could not launch {app_name}")
+            logging.error(f"Failed to switch to input {input_name}: {e}")
+            messagebox.showerror("Input Error", f"Could not switch to {input_name}")
 
     def set_picture_mode(self, mode_name):
         """Set picture mode (Standard, Movie, Dynamic, Game)"""
@@ -711,18 +737,6 @@ class ModernSamsungRemote:
         except Exception as e:
             logging.error(f"Failed to set picture mode to {mode_name}: {e}")
             messagebox.showerror("Picture Mode Error", f"Could not set picture mode to {mode_name}")
-
-    def switch_input(self, key, input_name):
-        """Switch to a specific input source"""
-        logging.info(f"Switching to input: {input_name}")
-        try:
-            self.send_key("KEY_SOURCE")  # Open input selector
-            # Navigate to desired input (this may need adjustment based on TV menu layout)
-            self.root.after(500, lambda: self.send_key(key))
-            logging.info(f"Input switch command sent for: {input_name}")
-        except Exception as e:
-            logging.error(f"Failed to switch to input {input_name}: {e}")
-            messagebox.showerror("Input Error", f"Could not switch to {input_name}")
 
     def show_command_history(self):
         """Display command history in a new window"""
