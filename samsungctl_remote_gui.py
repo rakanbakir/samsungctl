@@ -964,6 +964,10 @@ class ModernSamsungRemote:
                                font=('Segoe UI', 11, 'bold'), fg=self.text_color, bg=self.bg_color)
         subnet_title.pack(anchor=tk.W, padx=10, pady=(10, 5))
         
+        subnet_note = tk.Label(subnet_frame, text="Note: UPnP only works on local subnet. Port scanning checks all subnets.",
+                              font=('Segoe UI', 8), fg=self.secondary_text, bg=self.bg_color)
+        subnet_note.pack(anchor=tk.W, padx=10, pady=(0, 5))
+        
         # Get local subnet automatically
         local_ip = self._get_local_ip()
         local_subnet = self._get_subnet(local_ip) if local_ip else "192.168.1.0/24"
@@ -1025,8 +1029,9 @@ class ModernSamsungRemote:
         subnet_entry.bind('<Return>', lambda e: add_subnet())
         
         # Status label
-        status_label = tk.Label(discover_window, text="Ready to scan. Configure subnets above if needed.",
-                               font=('Segoe UI', 10), fg=self.secondary_text, bg=self.bg_color)
+        status_label = tk.Label(discover_window, text="Discovery Methods:\n• UPnP: Fast, local subnet only\n• Port Scan: Slower, scans all configured subnets",
+                               font=('Segoe UI', 9), fg=self.secondary_text, bg=self.bg_color,
+                               justify=tk.LEFT)
         status_label.pack(pady=5)
         
         # Progress bar
@@ -1095,27 +1100,28 @@ class ModernSamsungRemote:
     def _perform_tv_discovery(self, window, status_label, progress_var, results_container, subnets_to_scan):
         """Perform the actual TV discovery process"""
         discovered_tvs = []
-        
+
         try:
             logging.info(f"Scanning {len(subnets_to_scan)} subnet(s): {subnets_to_scan}")
-            
-            # First try UPnP discovery (faster and more reliable, works across subnets)
-            status_label.config(text="Searching for TVs using UPnP...")
+
+            # First try UPnP discovery (only works on local subnet)
+            status_label.config(text="Searching for TVs using UPnP (local subnet only)...")
             window.update()
             upnp_tvs = self._discover_upnp_tvs()
             discovered_tvs.extend(upnp_tvs)
-            
+            logging.info(f"UPnP discovery found {len(upnp_tvs)} TVs on local subnet")
+
             # Then do port scanning for each configured subnet
             total_subnets = len(subnets_to_scan)
-            
+
             for subnet_idx, subnet in enumerate(subnets_to_scan):
-                status_label.config(text=f"Scanning subnet {subnet_idx + 1}/{total_subnets}: {subnet}...")
+                status_label.config(text=f"Port scanning subnet {subnet_idx + 1}/{total_subnets}: {subnet}...")
                 window.update()
-                logging.info(f"Scanning subnet: {subnet}")
-                
+                logging.info(f"Port scanning subnet: {subnet}")
+
                 # Common Samsung TV ports
                 tv_ports = [8001, 55000]  # websocket and legacy ports
-                
+
                 # Generate IP range to scan (first 50 IPs in subnet)
                 ip_range = []
                 try:
@@ -1127,33 +1133,46 @@ class ModernSamsungRemote:
                 except ValueError as e:
                     logging.error(f"Invalid subnet format {subnet}: {e}")
                     continue
-                
+
                 if not ip_range:
                     logging.warning(f"No IP addresses found in subnet {subnet}")
                     continue
-                
+
                 total_ips = len(ip_range)
                 status_label.config(text=f"Scanning {total_ips} IPs in {subnet}...")
-                
+
                 # Scan IPs in background
                 port_scan_tvs = self._scan_ip_range(ip_range, tv_ports, status_label, progress_var, window)
-                
+
                 # Merge results, avoiding duplicates
                 existing_ips = {tv['ip'] for tv in discovered_tvs}
                 for tv in port_scan_tvs:
                     if tv['ip'] not in existing_ips:
                         discovered_tvs.append(tv)
-            
+                        logging.info(f"Port scan found TV: {tv}")
+
             # Update results display
             self._display_discovery_results(results_container, discovered_tvs, window)
-            
+
+            # Log detailed results by subnet
+            subnet_results = {}
+            for tv in discovered_tvs:
+                ip_parts = tv['ip'].split('.')
+                subnet = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+                if subnet not in subnet_results:
+                    subnet_results[subnet] = []
+                subnet_results[subnet].append(tv)
+
+            logging.info("Discovery results by subnet:")
+            for subnet, tvs in subnet_results.items():
+                logging.info(f"  {subnet}: {len(tvs)} TV(s) found")
+
             if discovered_tvs:
                 status_label.config(text=f"Found {len(discovered_tvs)} Samsung TV(s)!", fg='#28a745')
                 logging.info(f"TV discovery completed. Found {len(discovered_tvs)} TVs across {len(subnets_to_scan)} subnets")
             else:
                 status_label.config(text="No Samsung TVs found on configured subnets", fg='#ff8800')
                 logging.info("TV discovery completed. No TVs found")
-                
         except Exception as e:
             logging.error(f"Error during TV discovery: {e}")
             status_label.config(text=f"Discovery error: {str(e)}", fg='#ff4444')
@@ -1486,9 +1505,10 @@ class ModernSamsungRemote:
             widget.destroy()
         
         if not discovered_tvs:
-            no_results_label = tk.Label(container, text="No Samsung TVs found on your network.\n\nMake sure:\n• Your TV is powered on\n• Your TV is connected to the same Wi-Fi network\n• Network discovery is enabled on your TV",
-                                       font=('Segoe UI', 10), fg=self.secondary_text, bg=self.bg_color,
-                                       justify=tk.LEFT)
+            subnet_info = ", ".join(subnets_to_scan)
+            no_results_label = tk.Label(container, text=f"No Samsung TVs found on configured subnets: {subnet_info}\n\nPossible reasons:\n• TVs are on different subnets that aren't routable\n• TVs have network discovery disabled\n• TVs are powered off or not connected to Wi-Fi\n• Firewall blocking discovery traffic\n• Try manual IP entry if you know your TV's address",
+                                       font=('Segoe UI', 9), fg=self.secondary_text, bg=self.bg_color,
+                                       justify=tk.LEFT, wraplength=500)
             no_results_label.pack(pady=20)
             return
         
