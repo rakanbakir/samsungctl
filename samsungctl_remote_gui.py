@@ -61,7 +61,8 @@ class ModernSamsungRemote:
                 "host": "",
                 "method": "websocket",
                 "port": 8001,
-                "timeout": 5
+                "timeout": 5,
+                "tooltips_enabled": True
             }
             logging.warning("Config loading failed, using default configuration")
 
@@ -94,6 +95,9 @@ class ModernSamsungRemote:
 
         # Load discovery subnets from config
         self.discovery_subnets = self.config.get('discovery_subnets', []) if self.config else []
+
+        # Load key reference data for tooltips
+        self.key_reference = self._load_key_reference()
 
         # Create main layout inside scrollable frame
         self.create_header()
@@ -398,6 +402,12 @@ class ModernSamsungRemote:
                              width=4, height=2, relief='raised', bd=3, takefocus=1)
         power_btn.pack()
         self.add_button_hover(power_btn, '#ff6666', '#ff4444')
+        
+        # Add tooltip for power button
+        if self.config.get("tooltips_enabled", True) and "KEY_POWER" in self.key_reference:
+            ref = self.key_reference["KEY_POWER"]
+            tooltip_text = f"{ref['code']}\n{ref['description']}"
+            self.ToolTip(power_btn, tooltip_text)
 
         # Volume and channel controls
         vol_ch_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -446,6 +456,12 @@ class ModernSamsungRemote:
                           width=6, height=2, relief='raised', bd=2, takefocus=1)
         ok_btn.grid(row=1, column=1, padx=5)
         self.add_button_hover(ok_btn, '#0099ff', self.accent_color)
+        
+        # Add tooltip for OK button
+        if self.config.get("tooltips_enabled", True) and "KEY_ENTER" in self.key_reference:
+            ref = self.key_reference["KEY_ENTER"]
+            tooltip_text = f"{ref['code']}\n{ref['description']}"
+            self.ToolTip(ok_btn, tooltip_text)
 
         right_btn = self.create_round_button(nav_frame, "▶", "KEY_RIGHT", 14)
         right_btn.grid(row=1, column=2, padx=5)
@@ -472,6 +488,12 @@ class ModernSamsungRemote:
                                  width=4, height=2, relief='raised', bd=2, takefocus=1)
             media_btn.grid(row=0, column=i, padx=5)
             self.add_button_hover(media_btn, self.button_hover, self.button_bg)
+            
+            # Add tooltip for media button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(media_btn, tooltip_text)
 
         # Number pad
         num_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -495,6 +517,13 @@ class ModernSamsungRemote:
                                        width=4, height=2, relief='raised', bd=1, takefocus=1)
                     num_btn.grid(row=i, column=j, padx=3, pady=3, sticky='nsew')
                     self.add_button_hover(num_btn, self.button_hover, self.button_bg)
+                    
+                    # Add tooltip for number button
+                    key_name = f"KEY_{num}"
+                    if self.config.get("tooltips_enabled", True) and key_name in self.key_reference:
+                        ref = self.key_reference[key_name]
+                        tooltip_text = f"{ref['code']}\n{ref['description']}"
+                        self.ToolTip(num_btn, tooltip_text)
                 else:
                     # Create empty label to maintain grid structure
                     empty_label = tk.Label(num_frame, text="", bg=self.bg_color)
@@ -525,6 +554,12 @@ class ModernSamsungRemote:
                                  width=6, height=2, relief='raised', bd=2, takefocus=1)
             color_btn.pack(side=tk.LEFT, padx=5)
             self.add_button_hover(color_btn, self.adjust_color(color_code, 30), color_code)
+            
+            # Add tooltip for color button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(color_btn, tooltip_text)
 
         # Smart Apps section
         smart_apps_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -551,6 +586,12 @@ class ModernSamsungRemote:
                                width=8, height=1, relief='raised', bd=1, takefocus=1)
             app_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(app_btn, self.adjust_color(app_color, 30), app_color)
+            
+            # Add tooltip for app button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(app_btn, tooltip_text)
 
         # Gaming section
         gaming_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -574,6 +615,12 @@ class ModernSamsungRemote:
                                 width=10, height=1, relief='raised', bd=1, takefocus=1)
             game_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(game_btn, self.adjust_color(game_color, 30), game_color)
+            
+            # Add tooltip for game button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(game_btn, tooltip_text)
 
         # Advanced Controls section
         advanced_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -610,6 +657,12 @@ class ModernSamsungRemote:
                                 width=8, height=1, relief='raised', bd=1, takefocus=1)
             ctrl_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(ctrl_btn, self.adjust_color(ctrl_color, 30), ctrl_color)
+            
+            # Add tooltip for advanced control button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(ctrl_btn, tooltip_text)
 
         # Second row - create a new frame for the second row
         advanced_row2_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -623,6 +676,12 @@ class ModernSamsungRemote:
                                 width=8, height=1, relief='raised', bd=1, takefocus=1)
             ctrl_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(ctrl_btn, self.adjust_color(ctrl_color, 30), ctrl_color)
+            
+            # Add tooltip for advanced control button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(ctrl_btn, tooltip_text)
 
         # Additional Sources section
         additional_sources_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -689,6 +748,12 @@ class ModernSamsungRemote:
                                 width=10, height=1, relief='raised', bd=1, takefocus=1)
             func_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(func_btn, self.adjust_color(func_color, 30), func_color)
+            
+            # Add tooltip for special function button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(func_btn, tooltip_text)
 
         # Second row - create a new frame for the second row
         special_row2_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -702,6 +767,12 @@ class ModernSamsungRemote:
                                 width=10, height=1, relief='raised', bd=1, takefocus=1)
             func_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(func_btn, self.adjust_color(func_color, 30), func_color)
+            
+            # Add tooltip for special function button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(func_btn, tooltip_text)
 
         # Additional function buttons
         func_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -744,6 +815,12 @@ class ModernSamsungRemote:
                                     width=8, height=2, relief='raised', bd=1, takefocus=1)
                 func_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
                 self.add_button_hover(func_btn, self.button_hover, self.button_bg)
+                
+                # Add tooltip for function button
+                if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                    ref = self.key_reference[key]
+                    tooltip_text = f"{ref['code']}\n{ref['description']}"
+                    self.ToolTip(func_btn, tooltip_text)
 
         self.add_button_hover(func_btn, self.button_hover, self.button_bg)
 
@@ -771,6 +848,12 @@ class ModernSamsungRemote:
                                width=10, height=1, relief='raised', bd=1, takefocus=1)
             pic_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(pic_btn, self.button_hover, self.button_bg)
+            
+            # Add tooltip for picture mode button (use PMODE as reference)
+            if self.config.get("tooltips_enabled", True) and "KEY_PMODE" in self.key_reference:
+                ref = self.key_reference["KEY_PMODE"]
+                tooltip_text = f"Picture Mode: {mode_name}\n{ref['description']}"
+                self.ToolTip(pic_btn, tooltip_text)
 
         # Sound mode buttons
         sound_modes = [
@@ -796,6 +879,12 @@ class ModernSamsungRemote:
                                 width=10, height=1, relief='raised', bd=1, takefocus=1)
             sound_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(sound_btn, self.button_hover, self.button_bg)
+            
+            # Add tooltip for sound mode button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(sound_btn, tooltip_text)
 
         # Input source selector
         input_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -815,6 +904,12 @@ class ModernSamsungRemote:
                                 width=6, height=1, relief='raised', bd=1, takefocus=1)
             input_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(input_btn, self.button_hover, self.button_bg)
+            
+            # Add tooltip for input button
+            if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+                ref = self.key_reference[key]
+                tooltip_text = f"{ref['code']}\n{ref['description']}"
+                self.ToolTip(input_btn, tooltip_text)
 
     def create_footer(self):
         """Create footer with IP configuration"""
@@ -837,6 +932,14 @@ class ModernSamsungRemote:
         update_btn.pack(side=tk.LEFT, padx=(0, 10))
         self.add_button_hover(update_btn, '#0099ff', self.accent_color)
 
+        # Tooltips toggle checkbox
+        self.tooltips_var = tk.BooleanVar(value=self.config.get("tooltips_enabled", True))
+        tooltips_check = tk.Checkbutton(footer_frame, text="Show Tooltips", variable=self.tooltips_var,
+                                       command=self.toggle_tooltips, font=('Segoe UI', 9),
+                                       bg=self.bg_color, fg=self.text_color, selectcolor=self.button_bg,
+                                       activebackground=self.bg_color, activeforeground=self.text_color)
+        tooltips_check.pack(side=tk.LEFT, padx=(0, 10))
+
         # Network discovery button
         discover_btn = tk.Button(footer_frame, text="🔍 Discover TVs", command=self.discover_tvs,
                                 font=('Segoe UI', 9), bg='#28a745', fg='white',
@@ -845,11 +948,18 @@ class ModernSamsungRemote:
         self.add_button_hover(discover_btn, '#218838', '#28a745')
 
     def create_round_button(self, parent, text, key, size=12):
-        """Create a round button with hover effects"""
+        """Create a round button with hover effects and tooltips"""
         btn = tk.Button(parent, text=text, command=lambda: self.send_key(key),
                        font=('Segoe UI', size, 'bold'), bg=self.button_bg, fg=self.text_color,
                        width=3, height=1, relief='raised', bd=2, takefocus=1)
         self.add_button_hover(btn, self.button_hover, self.button_bg)
+        
+        # Add tooltip with key information if tooltips are enabled
+        if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+            ref = self.key_reference[key]
+            tooltip_text = f"{ref['code']}\n{ref['description']}"
+            self.ToolTip(btn, tooltip_text)
+        
         return btn
 
     def add_button_hover(self, button, hover_color, normal_color):
@@ -918,6 +1028,163 @@ class ModernSamsungRemote:
         else:
             logging.warning("Config file not found. Using default settings.")
             return None
+
+    def _load_key_reference(self):
+        """Load Samsung TV key reference data for tooltips"""
+        try:
+            # Default key reference data - replace with your actual JSON data
+            default_key_reference = {
+                "KEY_POWER": {"code": "KEY_POWER", "description": "Power on/off the TV"},
+                "KEY_VOLUP": {"code": "KEY_VOLUP", "description": "Increase volume"},
+                "KEY_VOLDOWN": {"code": "KEY_VOLDOWN", "description": "Decrease volume"},
+                "KEY_MUTE": {"code": "KEY_MUTE", "description": "Mute/unmute audio"},
+                "KEY_CHUP": {"code": "KEY_CHUP", "description": "Channel up"},
+                "KEY_CHDOWN": {"code": "KEY_CHDOWN", "description": "Channel down"},
+                "KEY_UP": {"code": "KEY_UP", "description": "Navigate up in menus"},
+                "KEY_DOWN": {"code": "KEY_DOWN", "description": "Navigate down in menus"},
+                "KEY_LEFT": {"code": "KEY_LEFT", "description": "Navigate left in menus"},
+                "KEY_RIGHT": {"code": "KEY_RIGHT", "description": "Navigate right in menus"},
+                "KEY_ENTER": {"code": "KEY_ENTER", "description": "Select/confirm menu option"},
+                "KEY_RETURN": {"code": "KEY_RETURN", "description": "Go back/return to previous menu"},
+                "KEY_MENU": {"code": "KEY_MENU", "description": "Open main menu"},
+                "KEY_HOME": {"code": "KEY_HOME", "description": "Go to smart TV home screen"},
+                "KEY_SOURCE": {"code": "KEY_SOURCE", "description": "Change input source"},
+                "KEY_GUIDE": {"code": "KEY_GUIDE", "description": "Open TV guide/program guide"},
+                "KEY_INFO": {"code": "KEY_INFO", "description": "Display program information"},
+                "KEY_EXIT": {"code": "KEY_EXIT", "description": "Exit current menu/application"},
+                "KEY_PLAY": {"code": "KEY_PLAY", "description": "Play media"},
+                "KEY_PAUSE": {"code": "KEY_PAUSE", "description": "Pause media"},
+                "KEY_STOP": {"code": "KEY_STOP", "description": "Stop media playback"},
+                "KEY_RED": {"code": "KEY_RED", "description": "Red color button (context dependent)"},
+                "KEY_GREEN": {"code": "KEY_GREEN", "description": "Green color button (context dependent)"},
+                "KEY_YELLOW": {"code": "KEY_YELLOW", "description": "Yellow color button (context dependent)"},
+                "KEY_BLUE": {"code": "KEY_BLUE", "description": "Blue color button (context dependent)"},
+                "KEY_0": {"code": "KEY_0", "description": "Number 0"},
+                "KEY_1": {"code": "KEY_1", "description": "Number 1"},
+                "KEY_2": {"code": "KEY_2", "description": "Number 2"},
+                "KEY_3": {"code": "KEY_3", "description": "Number 3"},
+                "KEY_4": {"code": "KEY_4", "description": "Number 4"},
+                "KEY_5": {"code": "KEY_5", "description": "Number 5"},
+                "KEY_6": {"code": "KEY_6", "description": "Number 6"},
+                "KEY_7": {"code": "KEY_7", "description": "Number 7"},
+                "KEY_8": {"code": "KEY_8", "description": "Number 8"},
+                "KEY_9": {"code": "KEY_9", "description": "Number 9"},
+                "KEY_TV": {"code": "KEY_TV", "description": "Switch to TV input"},
+                "KEY_HDMI1": {"code": "KEY_HDMI1", "description": "Switch to HDMI1 input"},
+                "KEY_HDMI2": {"code": "KEY_HDMI2", "description": "Switch to HDMI2 input"},
+                "KEY_HDMI3": {"code": "KEY_HDMI3", "description": "Switch to HDMI3 input"},
+                "KEY_HDMI4": {"code": "KEY_HDMI4", "description": "Switch to HDMI4 input"},
+                "KEY_NETFLIX": {"code": "KEY_NETFLIX", "description": "Launch Netflix app"},
+                "KEY_YOUTUBE": {"code": "KEY_YOUTUBE", "description": "Launch YouTube app"},
+                "KEY_AMAZON": {"code": "KEY_AMAZON", "description": "Launch Amazon Prime Video app"},
+                "KEY_HULU": {"code": "KEY_HULU", "description": "Launch Hulu app"},
+                "KEY_DISNEY": {"code": "KEY_DISNEY", "description": "Launch Disney+ app"},
+                "KEY_GAME": {"code": "KEY_GAME", "description": "Launch game mode or gaming features"},
+                "KEY_GAME_MODE": {"code": "KEY_GAME_MODE", "description": "Toggle game mode"},
+                "KEY_3D": {"code": "KEY_3D", "description": "Toggle 3D mode"},
+                "KEY_SUBTITLE": {"code": "KEY_SUBTITLE", "description": "Toggle subtitles/captions"},
+                "KEY_AD": {"code": "KEY_AD", "description": "Audio description toggle"},
+                "KEY_REPEAT": {"code": "KEY_REPEAT", "description": "Repeat playback mode"},
+                "KEY_SHUFFLE": {"code": "KEY_SHUFFLE", "description": "Shuffle playback mode"},
+                "KEY_TTX_MIX": {"code": "KEY_TTX_MIX", "description": "Teletext mix mode"},
+                "KEY_TTX_SUBFACE": {"code": "KEY_TTX_SUBFACE", "description": "Teletext subtitle mode"},
+                "KEY_PIP_ONOFF": {"code": "KEY_PIP_ONOFF", "description": "Toggle Picture-in-Picture mode"},
+                "KEY_PIP_SWAP": {"code": "KEY_PIP_SWAP", "description": "Swap main and PIP windows"},
+                "KEY_PIP_CHUP": {"code": "KEY_PIP_CHUP", "description": "PIP channel up"},
+                "KEY_PIP_CHDOWN": {"code": "KEY_PIP_CHDOWN", "description": "PIP channel down"},
+                "KEY_COMPONENT1": {"code": "KEY_COMPONENT1", "description": "Switch to Component1 input"},
+                "KEY_COMPONENT2": {"code": "KEY_COMPONENT2", "description": "Switch to Component2 input"},
+                "KEY_AV1": {"code": "KEY_AV1", "description": "Switch to AV1 input"},
+                "KEY_AV2": {"code": "KEY_AV2", "description": "Switch to AV2 input"},
+                "KEY_AV3": {"code": "KEY_AV3", "description": "Switch to AV3 input"},
+                "KEY_SVIDEO1": {"code": "KEY_SVIDEO1", "description": "Switch to S-Video1 input"},
+                "KEY_SVIDEO2": {"code": "KEY_SVIDEO2", "description": "Switch to S-Video2 input"},
+                "KEY_PC": {"code": "KEY_PC", "description": "Switch to PC input"},
+                "KEY_DVI": {"code": "KEY_DVI", "description": "Switch to DVI input"},
+                "KEY_RGB": {"code": "KEY_RGB", "description": "Switch to RGB input"},
+                "KEY_SOUNDMODE": {"code": "KEY_SOUNDMODE", "description": "Change sound mode"},
+                "KEY_MONO": {"code": "KEY_MONO", "description": "Set audio to mono"},
+                "KEY_STEREO": {"code": "KEY_STEREO", "description": "Set audio to stereo"},
+                "KEY_DUAL": {"code": "KEY_DUAL", "description": "Set audio to dual language"},
+                "KEY_SURROUND": {"code": "KEY_SURROUND", "description": "Set audio to surround sound"},
+                "KEY_PMODE": {"code": "KEY_PMODE", "description": "Change picture mode"},
+                "KEY_PSIZE": {"code": "KEY_PSIZE", "description": "Change picture size/aspect ratio"},
+                "KEY_POSITION": {"code": "KEY_POSITION", "description": "Adjust picture position"},
+                "KEY_PIP_SIZE": {"code": "KEY_PIP_SIZE", "description": "Adjust PIP window size"},
+                "KEY_PIP_POSITION": {"code": "KEY_PIP_POSITION", "description": "Adjust PIP window position"},
+                "KEY_MAGIC_CHANNEL": {"code": "KEY_MAGIC_CHANNEL", "description": "Magic Channel feature"},
+                "KEY_MAGIC_INFO": {"code": "KEY_MAGIC_INFO", "description": "Magic Info feature"},
+                "KEY_MAGIC_PICTURE": {"code": "KEY_MAGIC_PICTURE", "description": "Magic Picture feature"},
+                "KEY_MAGIC_SOUND": {"code": "KEY_MAGIC_SOUND", "description": "Magic Sound feature"},
+                "KEY_DVR": {"code": "KEY_DVR", "description": "DVR/PVR functions"},
+                "KEY_DVR_MENU": {"code": "KEY_DVR_MENU", "description": "DVR menu"},
+                "KEY_ANTENA": {"code": "KEY_ANTENA", "description": "Antenna/cable input"},
+                "KEY_CLOCK_DISPLAY": {"code": "KEY_CLOCK_DISPLAY", "description": "Display clock"},
+                "KEY_SETUP_CLOCK_TIMER": {"code": "KEY_SETUP_CLOCK_TIMER", "description": "Setup clock/timer"},
+                "KEY_FACTORY": {"code": "KEY_FACTORY", "description": "Factory reset/service menu"},
+                "KEY_11": {"code": "KEY_11", "description": "Additional number key 11"},
+                "KEY_12": {"code": "KEY_12", "description": "Additional number key 12"}
+            }
+            
+            logging.info(f"Loaded key reference data with {len(default_key_reference)} entries")
+            return default_key_reference
+            
+        except Exception as e:
+            logging.error(f"Failed to load key reference data: {e}")
+            return {}
+
+    class ToolTip:
+        """Simple tooltip class for displaying key information"""
+        def __init__(self, widget, text):
+            self.widget = widget
+            self.text = text
+            self.tooltip_window = None
+            self.widget.bind("<Enter>", self.show_tooltip)
+            self.widget.bind("<Leave>", self.hide_tooltip)
+            
+        def show_tooltip(self, event=None):
+            if self.tooltip_window or not self.text:
+                return
+                
+            # Create tooltip window
+            self.tooltip_window = tk.Toplevel(self.widget)
+            self.tooltip_window.wm_overrideredirect(True)  # Remove window decorations
+            self.tooltip_window.wm_geometry("+0+0")  # Position will be set later
+            
+            # Create label with tooltip text
+            label = tk.Label(self.tooltip_window, text=self.text, 
+                           font=('Segoe UI', 8), bg='#ffffe0', fg='black',
+                           relief='solid', borderwidth=1, padx=5, pady=3)
+            label.pack()
+            
+            # Position tooltip near mouse cursor
+            x = self.widget.winfo_pointerx() + 15
+            y = self.widget.winfo_pointery() + 10
+            
+            # Adjust if tooltip would go off screen
+            screen_width = self.widget.winfo_screenwidth()
+            screen_height = self.widget.winfo_screenheight()
+            
+            tooltip_width = label.winfo_reqwidth() + 10
+            tooltip_height = label.winfo_reqheight() + 10
+            
+            if x + tooltip_width > screen_width:
+                x = screen_width - tooltip_width
+            if y + tooltip_height > screen_height:
+                y = screen_height - tooltip_height
+                
+            self.tooltip_window.wm_geometry(f"+{x}+{y}")
+            
+        def hide_tooltip(self, event=None):
+            if self.tooltip_window:
+                self.tooltip_window.destroy()
+                self.tooltip_window = None
+
+    def toggle_tooltips(self):
+        """Toggle tooltips on/off"""
+        self.config["tooltips_enabled"] = self.tooltips_var.get()
+        self.save_config()
+        logging.info(f"Tooltips {'enabled' if self.tooltips_var.get() else 'disabled'}")
 
     def update_ip(self):
         new_ip = self.ip_entry.get()
