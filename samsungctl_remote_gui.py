@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+import socket
+import ipaddress
+import threading
+import queue
+import struct
+import time
 import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
@@ -825,8 +831,15 @@ class ModernSamsungRemote:
         update_btn = tk.Button(footer_frame, text="Update", command=self.update_ip,
                               font=('Segoe UI', 9), bg=self.accent_color, fg='white',
                               relief='raised', bd=1, padx=10)
-        update_btn.pack(side=tk.LEFT)
+        update_btn.pack(side=tk.LEFT, padx=(0, 10))
         self.add_button_hover(update_btn, '#0099ff', self.accent_color)
+
+        # Network discovery button
+        discover_btn = tk.Button(footer_frame, text="🔍 Discover TVs", command=self.discover_tvs,
+                                font=('Segoe UI', 9), bg='#28a745', fg='white',
+                                relief='raised', bd=1, padx=10)
+        discover_btn.pack(side=tk.LEFT)
+        self.add_button_hover(discover_btn, '#218838', '#28a745')
 
     def create_round_button(self, parent, text, key, size=12):
         """Create a round button with hover effects"""
@@ -923,6 +936,554 @@ class ModernSamsungRemote:
                     messagebox.showerror("Error", "Please enter a valid IP address")
             except Exception as dialog_error:
                 logging.error(f"Failed to show IP error dialog: {dialog_error}")
+
+    def discover_tvs(self):
+        """Discover Samsung TVs on the local network"""
+        logging.info("Starting TV discovery process")
+        
+        # Create discovery dialog
+        discover_window = tk.Toplevel(self.root)
+        discover_window.title("Discover Samsung TVs")
+        discover_window.geometry("600x500")
+        discover_window.configure(bg=self.bg_color)
+        discover_window.resizable(True, True)
+        
+        # Title
+        title_label = tk.Label(discover_window, text="Samsung TV Discovery",
+                              font=('Segoe UI', 16, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+        
+        # Status label
+        status_label = tk.Label(discover_window, text="Scanning network for Samsung TVs...",
+                               font=('Segoe UI', 10), fg=self.accent_color, bg=self.bg_color)
+        status_label.pack(pady=5)
+        
+        # Progress bar
+        progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(discover_window, variable=progress_var, maximum=100)
+        progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        
+        # Results frame with scrollbar
+        results_frame = ttk.Frame(discover_window, style='Card.TFrame')
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+        
+        # Create scrollable results area
+        canvas = tk.Canvas(results_frame, bg=self.bg_color, highlightthickness=0)
+        scrollbar = tk.Scrollbar(results_frame, orient=tk.VERTICAL, command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style='Card.TFrame')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Results container
+        self.discovery_results = []
+        results_container = ttk.Frame(scrollable_frame, style='Card.TFrame')
+        results_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Start discovery in background thread
+        def start_discovery():
+            try:
+                self._perform_tv_discovery(discover_window, status_label, progress_var, results_container)
+            except Exception as e:
+                logging.error(f"TV discovery failed: {e}")
+                status_label.config(text=f"Discovery failed: {str(e)}", fg='#ff4444')
+        
+        # Start discovery thread
+        discovery_thread = threading.Thread(target=start_discovery, daemon=True)
+        discovery_thread.start()
+        
+        # Bind mousewheel to canvas
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<MouseWheel>", on_mousewheel)
+        
+        # Close button
+        close_btn = tk.Button(discover_window, text="Close", command=discover_window.destroy,
+                             font=('Segoe UI', 10), bg=self.button_bg, fg=self.text_color,
+                             relief='raised', bd=1, padx=20)
+        close_btn.pack(pady=(0, 10))
+        self.add_button_hover(close_btn, self.button_hover, self.button_bg)
+
+    def _perform_tv_discovery(self, window, status_label, progress_var, results_container):
+        """Perform the actual TV discovery process"""
+        discovered_tvs = []
+        
+        try:
+            # Get local IP and subnet
+            local_ip = self._get_local_ip()
+            if not local_ip:
+                status_label.config(text="Could not determine local IP address", fg='#ff4444')
+                return
+                
+            subnet = self._get_subnet(local_ip)
+            logging.info(f"Scanning subnet: {subnet}")
+            
+            # First try UPnP discovery (faster and more reliable)
+            status_label.config(text="Searching for TVs using UPnP...")
+            window.update()
+            upnp_tvs = self._discover_upnp_tvs()
+            discovered_tvs.extend(upnp_tvs)
+            
+            # Then do port scanning for any TVs not found via UPnP
+            status_label.config(text="Scanning network for additional TVs...")
+            window.update()
+            
+            # Common Samsung TV ports
+            tv_ports = [8001, 55000]  # websocket and legacy ports
+            
+            # Generate IP range to scan (first 50 IPs in subnet)
+            ip_range = []
+            network = ipaddress.ip_network(subnet, strict=False)
+            for ip in network.hosts():
+                ip_range.append(str(ip))
+                if len(ip_range) >= 50:  # Limit scan to first 50 IPs
+                    break
+            
+            total_ips = len(ip_range)
+            status_label.config(text=f"Scanning {total_ips} IP addresses...")
+            
+            # Scan IPs in background
+            port_scan_tvs = self._scan_ip_range(ip_range, tv_ports, status_label, progress_var, window)
+            
+            # Merge results, avoiding duplicates
+            existing_ips = {tv['ip'] for tv in discovered_tvs}
+            for tv in port_scan_tvs:
+                if tv['ip'] not in existing_ips:
+                    discovered_tvs.append(tv)
+            
+            # Update results display
+            self._display_discovery_results(results_container, discovered_tvs, window)
+            
+            if discovered_tvs:
+                status_label.config(text=f"Found {len(discovered_tvs)} Samsung TV(s)!", fg='#28a745')
+                logging.info(f"TV discovery completed. Found {len(discovered_tvs)} TVs")
+            else:
+                status_label.config(text="No Samsung TVs found on network", fg='#ff8800')
+                logging.info("TV discovery completed. No TVs found")
+                
+        except Exception as e:
+            logging.error(f"Error during TV discovery: {e}")
+            status_label.config(text=f"Discovery error: {str(e)}", fg='#ff4444')
+
+    def _get_local_ip(self):
+        """Get the local IP address"""
+        try:
+            # Create a socket to get local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))  # Connect to Google DNS
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except Exception as e:
+            logging.error(f"Could not get local IP: {e}")
+            return None
+
+    def _get_subnet(self, ip):
+        """Get subnet from IP address (assumes /24 subnet)"""
+        try:
+            ip_parts = ip.split('.')
+            return f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.0/24"
+        except Exception as e:
+            logging.error(f"Could not determine subnet: {e}")
+            return "192.168.1.0/24"  # Default fallback
+
+    def _scan_ip_range(self, ip_range, ports, status_label, progress_var, window):
+        """Scan IP range for Samsung TVs"""
+        discovered_tvs = []
+        total_ips = len(ip_range)
+        
+        for i, ip in enumerate(ip_range):
+            if not window.winfo_exists():  # Check if window still exists
+                break
+                
+            # Update progress
+            progress = (i / total_ips) * 100
+            progress_var.set(progress)
+            status_label.config(text=f"Scanning {ip}... ({i+1}/{total_ips})")
+            window.update()
+            
+            # Check each port
+            for port in ports:
+                try:
+                    # Quick connection test
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.5)  # 500ms timeout
+                    
+                    result = sock.connect_ex((ip, port))
+                    if result == 0:
+                        # Port is open, try to identify as Samsung TV
+                        tv_info = self._identify_tv(ip, port)
+                        if tv_info:
+                            discovered_tvs.append(tv_info)
+                            logging.info(f"Found Samsung TV: {tv_info}")
+                            break  # Found TV on this IP, no need to check other ports
+                    
+                    sock.close()
+                    
+                except Exception as e:
+                    logging.debug(f"Error checking {ip}:{port} - {e}")
+                    continue
+            
+            # Small delay to avoid overwhelming network
+            time.sleep(0.01)
+        
+        return discovered_tvs
+
+    def _discover_upnp_tvs(self):
+        """Discover Samsung TVs using UPnP/SSDP protocol"""
+        discovered_tvs = []
+        
+        try:
+            # SSDP M-SEARCH request for UPnP devices
+            ssdp_request = (
+                'M-SEARCH * HTTP/1.1\r\n'
+                'HOST: 239.255.255.250:1900\r\n'
+                'MAN: "ssdp:discover"\r\n'
+                'MX: 3\r\n'
+                'ST: upnp:rootdevice\r\n'
+                'USER-AGENT: SamsungRemote/1.0\r\n'
+                '\r\n'
+            )
+            
+            # Create UDP socket for SSDP
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock.settimeout(5)
+            
+            # Set up multicast
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            
+            # Bind to a random port
+            sock.bind(('', 0))
+            
+            # Send M-SEARCH request to SSDP multicast address
+            sock.sendto(ssdp_request.encode(), ('239.255.255.250', 1900))
+            
+            logging.info("Sent UPnP M-SEARCH request")
+            
+            # Listen for responses
+            responses = []
+            start_time = time.time()
+            
+            while time.time() - start_time < 4:  # Listen for 4 seconds
+                try:
+                    data, addr = sock.recvfrom(4096)
+                    response = data.decode('utf-8', errors='ignore')
+                    responses.append((response, addr[0]))
+                except socket.timeout:
+                    break
+                except Exception as e:
+                    logging.debug(f"Error receiving SSDP response: {e}")
+                    break
+            
+            sock.close()
+            
+            logging.info(f"Received {len(responses)} UPnP responses")
+            
+            # Parse responses to find Samsung TVs
+            for response, ip in responses:
+                tv_info = self._parse_upnp_response(response, ip)
+                if tv_info:
+                    discovered_tvs.append(tv_info)
+                    logging.info(f"Found Samsung TV via UPnP: {tv_info}")
+            
+        except Exception as e:
+            logging.error(f"UPnP discovery failed: {e}")
+        
+        return discovered_tvs
+
+    def _parse_upnp_response(self, response, ip):
+        """Parse UPnP response to identify Samsung TVs"""
+        try:
+            lines = response.split('\n')
+            headers = {}
+            
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    headers[key.strip().upper()] = value.strip()
+            
+            # Check if this is a Samsung TV
+            server = headers.get('SERVER', '').upper()
+            location = headers.get('LOCATION', '')
+            
+            # Look for Samsung-specific identifiers
+            is_samsung_tv = False
+            model_name = "Unknown"
+            
+            if 'SAMSUNG' in server or 'SEC_HHP' in server:
+                is_samsung_tv = True
+                model_name = "Samsung TV (UPnP)"
+            
+            # Check location URL for Samsung-specific patterns
+            if not is_samsung_tv and location:
+                if 'Samsung' in location or 'SEC_HHP' in location:
+                    is_samsung_tv = True
+                    model_name = "Samsung TV (UPnP)"
+            
+            if is_samsung_tv:
+                # Determine connection method and port
+                method = 'websocket'  # Default to websocket for modern TVs
+                port = 8001
+                
+                # Try to get more specific information
+                if location:
+                    try:
+                        # Parse the location URL to get more details
+                        if '8001' in location:
+                            method = 'websocket'
+                            port = 8001
+                        elif '55000' in location:
+                            method = 'legacy'
+                            port = 55000
+                    except:
+                        pass
+                
+                return {
+                    'ip': ip,
+                    'port': port,
+                    'method': method,
+                    'name': f"Samsung TV ({ip})",
+                    'model': model_name,
+                    'discovery_method': 'UPnP'
+                }
+            
+        except Exception as e:
+            logging.debug(f"Error parsing UPnP response from {ip}: {e}")
+        
+        return None
+
+    def _check_ip_conflict(self, target_ip):
+        """Check if an IP address is already in use by sending ARP requests"""
+        try:
+            # Use ARP to check if IP is in use
+            import subprocess
+            
+            # Run ARP command to check if IP is in ARP table
+            result = subprocess.run(['arp', '-n', target_ip], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            # Check if IP appears in ARP table (indicates it's in use)
+            if target_ip in result.stdout and result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines:
+                    if target_ip in line and ('ether' in line or 'hwaddr' in line):
+                        logging.warning(f"IP conflict detected: {target_ip} is already in ARP table")
+                        return True
+            
+            # Also try a quick ping to see if host responds
+            ping_result = subprocess.run(['ping', '-c', '1', '-W', '1', target_ip],
+                                       capture_output=True, timeout=3)
+            
+            if ping_result.returncode == 0:
+                logging.warning(f"IP conflict detected: {target_ip} responds to ping")
+                return True
+            
+            logging.info(f"No IP conflict detected for {target_ip}")
+            return False
+            
+        except Exception as e:
+            logging.debug(f"Could not check IP conflict for {target_ip}: {e}")
+            # If we can't check, assume no conflict to avoid blocking connections
+            return False
+
+    def _resolve_ip_conflict(self, conflicting_ip):
+        """Attempt to resolve IP conflicts by suggesting alternatives"""
+        try:
+            local_ip = self._get_local_ip()
+            if not local_ip:
+                return None
+            
+            # Get network information
+            network = ipaddress.ip_network(self._get_subnet(local_ip), strict=False)
+            
+            # Find a free IP in the same subnet
+            used_ips = set()
+            
+            # Check ARP table for used IPs
+            try:
+                import subprocess
+                arp_result = subprocess.run(['arp', '-n'], capture_output=True, text=True)
+                for line in arp_result.stdout.split('\n'):
+                    if '(' in line and ')' in line:
+                        ip = line.split('(')[1].split(')')[0]
+                        used_ips.add(ip)
+            except:
+                pass
+            
+            # Find next available IP
+            base_ip = ipaddress.ip_address(local_ip)
+            for i in range(1, 20):  # Check next 20 IPs
+                candidate = str(base_ip + i)
+                if candidate not in used_ips and ipaddress.ip_address(candidate) in network:
+                    # Quick ping check
+                    try:
+                        ping_result = subprocess.run(['ping', '-c', '1', '-W', '1', candidate],
+                                                   capture_output=True, timeout=2)
+                        if ping_result.returncode != 0:  # No response means IP is free
+                            return candidate
+                    except:
+                        return candidate
+            
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error resolving IP conflict: {e}")
+            return None
+        """Try to identify if IP:port belongs to a Samsung TV"""
+        try:
+            # Try websocket connection first (modern TVs)
+            if port == 8001:
+                try:
+                    # Quick websocket test
+                    import websocket
+                    ws_url = f"ws://{ip}:{port}/api/v2/channels/samsung.remote.control"
+                    ws = websocket.create_connection(ws_url, timeout=2)
+                    ws.close()
+                    
+                    # If we get here, it's likely a Samsung TV
+                    return {
+                        'ip': ip,
+                        'port': port,
+                        'method': 'websocket',
+                        'name': f"Samsung TV ({ip})",
+                        'model': 'Unknown (WebSocket)'
+                    }
+                except:
+                    pass
+            
+            # Try legacy connection
+            elif port == 55000:
+                try:
+                    # Send a simple legacy command to test
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(2)
+                    sock.connect((ip, port))
+                    
+                    # Send a minimal command to test
+                    test_cmd = b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+                    sock.send(test_cmd)
+                    
+                    # If no immediate error, might be a TV
+                    response = sock.recv(1024)
+                    sock.close()
+                    
+                    if response:
+                        return {
+                            'ip': ip,
+                            'port': port,
+                            'method': 'legacy',
+                            'name': f"Samsung TV ({ip})",
+                            'model': 'Unknown (Legacy)'
+                        }
+                except:
+                    pass
+            
+            # Additional identification methods could be added here
+            # UPnP discovery, service detection, etc.
+            
+        except Exception as e:
+            logging.debug(f"Error identifying TV at {ip}:{port} - {e}")
+        
+        return None
+
+    def _display_discovery_results(self, container, discovered_tvs, window):
+        """Display discovered TVs in the results container"""
+        # Clear existing results
+        for widget in container.winfo_children():
+            widget.destroy()
+        
+        if not discovered_tvs:
+            no_results_label = tk.Label(container, text="No Samsung TVs found on your network.\n\nMake sure:\n• Your TV is powered on\n• Your TV is connected to the same Wi-Fi network\n• Network discovery is enabled on your TV",
+                                       font=('Segoe UI', 10), fg=self.secondary_text, bg=self.bg_color,
+                                       justify=tk.LEFT)
+            no_results_label.pack(pady=20)
+            return
+        
+        # Display found TVs
+        results_label = tk.Label(container, text=f"Found {len(discovered_tvs)} Samsung TV(s):",
+                                font=('Segoe UI', 12, 'bold'), fg=self.text_color, bg=self.bg_color)
+        results_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        for i, tv in enumerate(discovered_tvs):
+            # TV info frame
+            tv_frame = ttk.Frame(container, style='Card.TFrame')
+            tv_frame.pack(fill=tk.X, pady=5)
+            
+            # TV details
+            tv_info = f"📺 {tv['name']}\nIP: {tv['ip']} | Port: {tv['port']} | Method: {tv['method']}"
+            if tv.get('discovery_method'):
+                tv_info += f" | Found via: {tv['discovery_method']}"
+            tv_label = tk.Label(tv_frame, text=tv_info, font=('Segoe UI', 9),
+                               fg=self.text_color, bg=self.bg_color, justify=tk.LEFT)
+            tv_label.pack(side=tk.LEFT, padx=10, pady=5)
+            
+            # Connect button
+            connect_btn = tk.Button(tv_frame, text="Connect", 
+                                   command=lambda ip=tv['ip'], port=tv['port'], method=tv['method']: self._connect_to_discovered_tv(ip, port, method, window),
+                                   font=('Segoe UI', 9), bg=self.accent_color, fg='white',
+                                   relief='raised', bd=1, padx=15)
+            connect_btn.pack(side=tk.RIGHT, padx=10, pady=5)
+            self.add_button_hover(connect_btn, '#0099ff', self.accent_color)
+
+    def _connect_to_discovered_tv(self, ip, port, method, discovery_window):
+        """Connect to a discovered TV and update configuration"""
+        try:
+            # Check for IP conflicts before connecting
+            conflict_detected = self._check_ip_conflict(ip)
+            if conflict_detected:
+                response = messagebox.askyesno(
+                    "IP Conflict Detected",
+                    f"Warning: IP address {ip} may be in use by another device.\n"
+                    "This could cause connection issues.\n\n"
+                    "Do you want to continue anyway?",
+                    icon='warning'
+                )
+                if not response:
+                    logging.warning(f"User cancelled connection to {ip} due to IP conflict")
+                    return
+            
+            # Update IP entry
+            self.ip_entry.delete(0, tk.END)
+            self.ip_entry.insert(0, ip)
+            
+            # Update config
+            self.config["host"] = ip
+            self.config["port"] = port
+            self.config["method"] = method
+            
+            # Save config
+            self.save_config()
+            
+            # Try to connect
+            self.connect_to_tv()
+            
+            # Close discovery window
+            discovery_window.destroy()
+            
+            # Show success message
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showinfo("Connected", f"Successfully connected to Samsung TV at {ip}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show connection success dialog: {dialog_error}")
+                
+            logging.info(f"Connected to discovered TV: {ip}:{port} ({method})")
+            
+        except Exception as e:
+            logging.error(f"Failed to connect to discovered TV: {e}")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Connection Failed", f"Could not connect to TV at {ip}: {str(e)}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show connection error dialog: {dialog_error}")
 
     def switch_input(self, key, input_name):
         """Switch to a specific input source"""

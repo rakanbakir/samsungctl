@@ -110,6 +110,40 @@ The modern GUI features:
 - **Special functions** including voice control, ambient mode, and energy saving features
 - **Robust error handling** with safe messagebox operations and graceful connection failures
 - **Deferred connection** for stable startup without crashes during TV unavailability
+- **Network TV Discovery** - automatically scan your local network for Samsung TVs
+- **UPnP/SSDP Discovery** - advanced device discovery using Universal Plug and Play protocol
+- **IP Conflict Detection** - warns about potential IP address conflicts before connecting
+- **One-click connection** to discovered TVs with automatic configuration
+
+Network TV Discovery
+~~~~~~~~~~~~~~~~~~~~
+
+The Samsung TV Remote GUI includes advanced network discovery features to automatically find and connect to Samsung TVs on your local network:
+
+**Discovery Methods:**
+- **UPnP/SSDP Discovery**: Uses Universal Plug and Play protocol to quickly discover Samsung TVs by sending multicast discovery requests
+- **Port Scanning**: Falls back to scanning common Samsung TV ports (8001, 8002) across your network subnet
+- **IP Conflict Detection**: Checks for potential IP address conflicts before connecting to prevent connection issues
+
+**How to Use Discovery:**
+1. Click the "Discover TVs" button in the footer of the application
+2. The application will scan your network using UPnP first (faster), then port scanning if needed
+3. Discovered TVs will be displayed in a list with their IP addresses and discovery method
+4. Click "Connect" next to any discovered TV to automatically configure and connect
+5. If an IP conflict is detected, you'll receive a warning with suggestions for resolution
+
+**Discovery Features:**
+- **Automatic Method Selection**: UPnP is prioritized for faster, more reliable discovery
+- **Progress Feedback**: Real-time progress updates during network scanning
+- **Conflict Prevention**: IP conflict detection helps avoid connection problems
+- **One-Click Setup**: Discovered TVs can be connected with a single click
+- **Network Timeout Handling**: Graceful handling of network timeouts and unavailable devices
+
+**Technical Details:**
+- UPnP discovery uses SSDP (Simple Service Discovery Protocol) with M-SEARCH requests
+- Port scanning covers the local subnet (192.168.x.x range by default)
+- IP conflict detection uses ARP table checking and ping verification
+- All discovery operations run in background threads to keep the UI responsive
 
 **Keyboard Shortcuts:**
 - **P** - Power toggle
