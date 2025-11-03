@@ -101,6 +101,15 @@ The modern GUI features:
 - **Resizable window** that adapts to different screen sizes
 - **App shortcuts** for popular streaming services (YouTube, Netflix, Prime Video, Disney+, HBO Max, Hulu)
   *App buttons open Smart Hub - navigate to your desired app using arrow keys and OK button*
+- **Comprehensive command coverage** with all 110+ discovered TV commands implemented
+- **Organized sections** for Smart Apps, Gaming, Advanced Controls, Additional Sources, Special Functions, and Sound Modes
+- **Smart Hub integration** with direct access to streaming services and applications
+- **Gaming controls** including game mode toggles and gaming-specific functions
+- **Advanced picture and sound controls** with multiple modes and settings
+- **Source switching** for HDMI, component, and other input sources
+- **Special functions** including voice control, ambient mode, and energy saving features
+- **Robust error handling** with safe messagebox operations and graceful connection failures
+- **Deferred connection** for stable startup without crashes during TV unavailability
 
 **Keyboard Shortcuts:**
 - **P** - Power toggle
