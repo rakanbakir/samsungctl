@@ -281,7 +281,11 @@ class ModernSamsungRemote:
                 messagebox.showerror("Error", f"Failed to send command: {error_msg}")
         else:
             logging.warning(f"Attempted to send key {key} but no TV connection available")
-            messagebox.showwarning("Not Connected", "Please connect to TV first")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showwarning("Not Connected", "Please connect to TV first")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show connection warning dialog: {dialog_error}")
 
     def update_connection_status(self):
         """Update the connection status display in the header"""
@@ -310,7 +314,13 @@ class ModernSamsungRemote:
             logging.error(f"Failed to connect to TV: {str(e)}")
             # Update the UI status
             self.update_connection_status()
-            messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
+            # Only show error dialog if the application is still alive
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show connection error dialog: {dialog_error}")
+                # Application might be shutting down, just log the error
 
     def start_connection_monitor(self):
         """Start monitoring connection health"""
@@ -493,7 +503,9 @@ class ModernSamsungRemote:
             ('A', '#ff4444', 'KEY_RED'),
             ('B', '#44ff44', 'KEY_GREEN'),
             ('C', '#ffff44', 'KEY_YELLOW'),
-            ('D', '#4444ff', 'KEY_BLUE')
+            ('D', '#4444ff', 'KEY_BLUE'),
+            ('E', '#00ffff', 'KEY_CYAN'),
+            ('F', '#ff00ff', 'KEY_MAGENTA')
         ]
 
         for color_name, color_code, key in colors:
@@ -504,6 +516,183 @@ class ModernSamsungRemote:
                                  width=6, height=2, relief='raised', bd=2, takefocus=1)
             color_btn.pack(side=tk.LEFT, padx=5)
             self.add_button_hover(color_btn, self.adjust_color(color_code, 30), color_code)
+
+        # Smart Apps section
+        smart_apps_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        smart_apps_frame.pack(pady=10)
+
+        smart_apps_label = tk.Label(smart_apps_frame, text="Smart Apps", font=('Segoe UI', 10, 'bold'),
+                                   fg=self.text_color, bg=self.bg_color)
+        smart_apps_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Smart app buttons
+        smart_apps = [
+            ("Netflix", "KEY_NETFLIX", "#E50914"),
+            ("YouTube", "KEY_YOUTUBE", "#FF0000"),
+            ("Amazon", "KEY_AMAZON", "#00A8E1"),
+            ("Hulu", "KEY_HULU", "#1CE783"),
+            ("Disney+", "KEY_DISNEY", "#0063E5")
+        ]
+
+        for app_name, key, app_color in smart_apps:
+            def make_app_command(k):
+                return lambda: self.send_key(k)
+            app_btn = tk.Button(smart_apps_frame, text=app_name, command=make_app_command(key),
+                               font=('Segoe UI', 8), bg=app_color, fg='white',
+                               width=8, height=1, relief='raised', bd=1, takefocus=1)
+            app_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(app_btn, self.adjust_color(app_color, 30), app_color)
+
+        # Gaming section
+        gaming_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        gaming_frame.pack(pady=10)
+
+        gaming_label = tk.Label(gaming_frame, text="Gaming", font=('Segoe UI', 10, 'bold'),
+                               fg=self.text_color, bg=self.bg_color)
+        gaming_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Gaming buttons
+        gaming_apps = [
+            ("Game", "KEY_GAME", "#9C27B0"),
+            ("Game Mode", "KEY_GAME_MODE", "#673AB7")
+        ]
+
+        for game_name, key, game_color in gaming_apps:
+            def make_game_command(k):
+                return lambda: self.send_key(k)
+            game_btn = tk.Button(gaming_frame, text=game_name, command=make_game_command(key),
+                                font=('Segoe UI', 8), bg=game_color, fg='white',
+                                width=10, height=1, relief='raised', bd=1, takefocus=1)
+            game_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(game_btn, self.adjust_color(game_color, 30), game_color)
+
+        # Advanced Controls section
+        advanced_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        advanced_frame.pack(pady=10)
+
+        advanced_label = tk.Label(advanced_frame, text="Advanced Controls", font=('Segoe UI', 10, 'bold'),
+                                 fg=self.text_color, bg=self.bg_color)
+        advanced_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Advanced control buttons - arranged in rows
+        advanced_controls_row1 = [
+            ("3D", "KEY_3D", "#FF5722"),
+            ("Subtitle", "KEY_SUBTITLE", "#795548"),
+            ("AD", "KEY_AD", "#607D8B"),
+            ("Repeat", "KEY_REPEAT", "#9E9E9E"),
+            ("Shuffle", "KEY_SHUFFLE", "#BDBDBD"),
+            ("TTX Mix", "KEY_TTX_MIX", "#FF9800"),
+            ("TTX Subface", "KEY_TTX_SUBFACE", "#FF5722")
+        ]
+
+        advanced_controls_row2 = [
+            ("PIP On/Off", "KEY_PIP_ONOFF", "#2196F3"),
+            ("PIP Swap", "KEY_PIP_SWAP", "#03A9F4"),
+            ("PIP CH+", "KEY_PIP_CHUP", "#00BCD4"),
+            ("PIP CH-", "KEY_PIP_CHDOWN", "#009688")
+        ]
+
+        # First row
+        for ctrl_name, key, ctrl_color in advanced_controls_row1:
+            def make_ctrl_command(k):
+                return lambda: self.send_key(k)
+            ctrl_btn = tk.Button(advanced_frame, text=ctrl_name, command=make_ctrl_command(key),
+                                font=('Segoe UI', 7), bg=ctrl_color, fg='white',
+                                width=8, height=1, relief='raised', bd=1, takefocus=1)
+            ctrl_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(ctrl_btn, self.adjust_color(ctrl_color, 30), ctrl_color)
+
+        # Second row - create a new frame for the second row
+        advanced_row2_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        advanced_row2_frame.pack(pady=(0, 10))
+
+        for ctrl_name, key, ctrl_color in advanced_controls_row2:
+            def make_ctrl_command(k):
+                return lambda: self.send_key(k)
+            ctrl_btn = tk.Button(advanced_row2_frame, text=ctrl_name, command=make_ctrl_command(key),
+                                font=('Segoe UI', 7), bg=ctrl_color, fg='white',
+                                width=8, height=1, relief='raised', bd=1, takefocus=1)
+            ctrl_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(ctrl_btn, self.adjust_color(ctrl_color, 30), ctrl_color)
+
+        # Additional Sources section
+        additional_sources_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        additional_sources_frame.pack(pady=10)
+
+        additional_sources_label = tk.Label(additional_sources_frame, text="Additional Sources", font=('Segoe UI', 10, 'bold'),
+                                          fg=self.text_color, bg=self.bg_color)
+        additional_sources_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Additional input sources
+        additional_inputs = [
+            ("Component1", "KEY_COMPONENT1"),
+            ("Component2", "KEY_COMPONENT2"),
+            ("AV1", "KEY_AV1"),
+            ("AV2", "KEY_AV2"),
+            ("AV3", "KEY_AV3"),
+            ("S-Video1", "KEY_SVIDEO1"),
+            ("S-Video2", "KEY_SVIDEO2"),
+            ("PC", "KEY_PC"),
+            ("DVI", "KEY_DVI"),
+            ("RGB", "KEY_RGB")
+        ]
+
+        for input_name, key in additional_inputs:
+            def make_input_command(k, name):
+                return lambda: self.switch_input(k, name)
+            input_btn = tk.Button(additional_sources_frame, text=input_name, command=make_input_command(key, input_name),
+                                font=('Segoe UI', 6), bg=self.button_bg, fg=self.text_color,
+                                width=9, height=1, relief='raised', bd=1, takefocus=1)
+            input_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(input_btn, self.button_hover, self.button_bg)
+
+        # Special Functions section
+        special_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        special_frame.pack(pady=10)
+
+        special_label = tk.Label(special_frame, text="Special Functions", font=('Segoe UI', 10, 'bold'),
+                                fg=self.text_color, bg=self.bg_color)
+        special_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Special function buttons - arranged in rows
+        special_controls_row1 = [
+            ("Magic Channel", "KEY_MAGIC_CHANNEL", "#E91E63"),
+            ("Magic Info", "KEY_MAGIC_INFO", "#F44336"),
+            ("Magic Picture", "KEY_MAGIC_PICTURE", "#9C27B0"),
+            ("Magic Sound", "KEY_MAGIC_SOUND", "#673AB7"),
+            ("DVR", "KEY_DVR", "#3F51B5")
+        ]
+
+        special_controls_row2 = [
+            ("DVR Menu", "KEY_DVR_MENU", "#2196F3"),
+            ("Antenna", "KEY_ANTENA", "#03A9F4"),
+            ("Clock Display", "KEY_CLOCK_DISPLAY", "#00BCD4"),
+            ("Setup Clock", "KEY_SETUP_CLOCK_TIMER", "#009688"),
+            ("Factory", "KEY_FACTORY", "#4CAF50")
+        ]
+
+        # First row
+        for func_name, key, func_color in special_controls_row1:
+            def make_func_command(k):
+                return lambda: self.send_key(k)
+            func_btn = tk.Button(special_frame, text=func_name, command=make_func_command(key),
+                                font=('Segoe UI', 6), bg=func_color, fg='white',
+                                width=10, height=1, relief='raised', bd=1, takefocus=1)
+            func_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(func_btn, self.adjust_color(func_color, 30), func_color)
+
+        # Second row - create a new frame for the second row
+        special_row2_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        special_row2_frame.pack(pady=(0, 10))
+
+        for func_name, key, func_color in special_controls_row2:
+            def make_func_command(k):
+                return lambda: self.send_key(k)
+            func_btn = tk.Button(special_row2_frame, text=func_name, command=make_func_command(key),
+                                font=('Segoe UI', 6), bg=func_color, fg='white',
+                                width=10, height=1, relief='raised', bd=1, takefocus=1)
+            func_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(func_btn, self.adjust_color(func_color, 30), func_color)
 
         # Additional function buttons
         func_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -516,10 +705,11 @@ class ModernSamsungRemote:
             ('Info', 'KEY_INFO'),
             ('Back', 'KEY_RETURN'),
             ('Mute', 'KEY_MUTE'),
+            ('Scan API', None),  # Special button for TV API scanning
             ('History', None)  # Special button for command history
         ]
 
-        # Arrange in 2 rows of 4 buttons each (added History button)
+        # Arrange in 2 rows of 4 buttons each (added Scan API and History buttons)
         for i, (func_name, key) in enumerate(functions):
             row = i // 4
             col = i % 4
@@ -530,6 +720,13 @@ class ModernSamsungRemote:
                                        width=8, height=2, relief='raised', bd=1, takefocus=1)
                 history_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
                 self.add_button_hover(history_btn, '#0099ff', self.accent_color)
+            elif func_name == 'Scan API':
+                # Special scan API button
+                scan_btn = tk.Button(func_frame, text=func_name, command=self.scan_tv_api,
+                                    font=('Segoe UI', 9), bg='#ff8800', fg='white',
+                                    width=8, height=2, relief='raised', bd=1, takefocus=1)
+                scan_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
+                self.add_button_hover(scan_btn, '#ffaa33', '#ff8800')
             else:
                 def make_func_command(k):
                     return lambda: self.send_key(k)
@@ -565,6 +762,31 @@ class ModernSamsungRemote:
                                width=10, height=1, relief='raised', bd=1, takefocus=1)
             pic_btn.pack(side=tk.LEFT, padx=1)
             self.add_button_hover(pic_btn, self.button_hover, self.button_bg)
+
+        # Sound mode buttons
+        sound_modes = [
+            ("Mono", "KEY_MONO"),
+            ("Stereo", "KEY_STEREO"),
+            ("Dual", "KEY_DUAL"),
+            ("Surround", "KEY_SURROUND")
+        ]
+
+        # Create a new frame for sound modes
+        sound_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        sound_frame.pack(pady=(0, 10))
+
+        sound_label = tk.Label(sound_frame, text="Sound Modes", font=('Segoe UI', 10, 'bold'),
+                              fg=self.text_color, bg=self.bg_color)
+        sound_label.pack(anchor=tk.W, pady=(0, 5))
+
+        for sound_name, key in sound_modes:
+            def make_sound_command(k):
+                return lambda: self.send_key(k)
+            sound_btn = tk.Button(sound_frame, text=sound_name, command=make_sound_command(key),
+                                font=('Segoe UI', 8), bg=self.button_bg, fg=self.text_color,
+                                width=10, height=1, relief='raised', bd=1, takefocus=1)
+            sound_btn.pack(side=tk.LEFT, padx=1)
+            self.add_button_hover(sound_btn, self.button_hover, self.button_bg)
 
         # Input source selector
         input_frame = ttk.Frame(main_frame, style='Card.TFrame')
@@ -687,12 +909,20 @@ class ModernSamsungRemote:
             self.config["host"] = new_ip
             self.save_config()
             logging.info(f"TV IP updated to: {new_ip}")
-            messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show IP update dialog: {dialog_error}")
             # Reconnect with new IP
             self.connect_to_tv()
         else:
             logging.warning("Attempted to update IP with empty value")
-            messagebox.showerror("Error", "Please enter a valid IP address")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Error", "Please enter a valid IP address")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show IP error dialog: {dialog_error}")
 
     def switch_input(self, key, input_name):
         """Switch to a specific input source"""
@@ -704,7 +934,11 @@ class ModernSamsungRemote:
             logging.info(f"Input switch command sent for: {input_name}")
         except Exception as e:
             logging.error(f"Failed to switch to input {input_name}: {e}")
-            messagebox.showerror("Input Error", f"Could not switch to {input_name}")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Input Error", f"Could not switch to {input_name}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show input error dialog: {dialog_error}")
 
     def set_picture_mode(self, mode_name):
         """Set picture mode (Standard, Movie, Dynamic, Game)"""
@@ -736,7 +970,210 @@ class ModernSamsungRemote:
             logging.info(f"Picture mode set to: {mode_name}")
         except Exception as e:
             logging.error(f"Failed to set picture mode to {mode_name}: {e}")
-            messagebox.showerror("Picture Mode Error", f"Could not set picture mode to {mode_name}")
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Picture Mode Error", f"Could not set picture mode to {mode_name}")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show picture mode error dialog: {dialog_error}")
+
+    def scan_tv_api(self):
+        """Scan and discover available TV commands/keys"""
+        if not self.remote:
+            try:
+                if self.root and self.root.winfo_exists():
+                    messagebox.showerror("Not Connected", "Please connect to TV first")
+            except Exception as dialog_error:
+                logging.error(f"Failed to show scan connection error dialog: {dialog_error}")
+            return
+            
+        # Create scanning window
+        scan_window = tk.Toplevel(self.root)
+        scan_window.title("TV API Scanner")
+        scan_window.geometry("700x600")
+        
+        # Create scrollable frame
+        canvas = tk.Canvas(scan_window, bg=self.bg_color)
+        scrollbar = tk.Scrollbar(scan_window, orient=tk.VERTICAL, command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas, style='Card.TFrame')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Title
+        title_label = tk.Label(scrollable_frame, text="Samsung TV API Scanner",
+                              font=('Segoe UI', 16, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+        
+        # Status label
+        status_label = tk.Label(scrollable_frame, text="Scanning TV commands... Please wait.",
+                               font=('Segoe UI', 10), fg=self.accent_color, bg=self.bg_color)
+        status_label.pack(pady=5)
+        
+        # Progress bar
+        progress_var = tk.DoubleVar()
+        progress_bar = ttk.Progressbar(scrollable_frame, variable=progress_var, maximum=100)
+        progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        
+        # Results text area
+        results_text = tk.Text(scrollable_frame, wrap=tk.WORD, height=20, padx=10, pady=10)
+        results_scrollbar = tk.Scrollbar(scrollable_frame, command=results_text.yview)
+        results_text.config(yscrollcommand=results_scrollbar.set)
+        
+        results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(20, 0), pady=10)
+        results_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=10, padx=(0, 20))
+        
+        # Start scanning in a separate thread to avoid blocking UI
+        def scan_commands():
+            try:
+                # Common Samsung TV keys to test
+                test_keys = [
+                    # Basic controls
+                    "KEY_POWER", "KEY_POWEROFF", "KEY_POWERON",
+                    # Volume
+                    "KEY_VOLUP", "KEY_VOLDOWN", "KEY_MUTE",
+                    # Channel
+                    "KEY_CHUP", "KEY_CHDOWN", "KEY_CH_LIST",
+                    # Navigation
+                    "KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_ENTER", "KEY_RETURN",
+                    # Media controls
+                    "KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_REWIND", "KEY_FF", "KEY_REC",
+                    # Menu and home
+                    "KEY_MENU", "KEY_HOME", "KEY_GUIDE", "KEY_INFO", "KEY_EXIT",
+                    # Source/Input
+                    "KEY_SOURCE", "KEY_TV", "KEY_HDMI", "KEY_HDMI1", "KEY_HDMI2", "KEY_HDMI3", "KEY_HDMI4",
+                    # Color buttons
+                    "KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE", "KEY_CYAN", "KEY_MAGENTA",
+                    # Number keys
+                    "KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9",
+                    # Additional controls
+                    "KEY_SLEEP", "KEY_WAKEUP", "KEY_ASPECT", "KEY_PICTURE_MODE", "KEY_SOUND_MODE",
+                    "KEY_TOOLS", "KEY_MORE", "KEY_APPS", "KEY_WIDGETS", "KEY_SEARCH", "KEY_VOICE",
+                    # Smart features
+                    "KEY_NETFLIX", "KEY_YOUTUBE", "KEY_AMAZON", "KEY_HULU", "KEY_DISNEY",
+                    # Gaming
+                    "KEY_GAME", "KEY_GAME_MODE",
+                    # Additional media
+                    "KEY_3D", "KEY_SUBTITLE", "KEY_AD", "KEY_REPEAT", "KEY_SHUFFLE",
+                    # Teletext
+                    "KEY_TTX_MIX", "KEY_TTX_SUBFACE",
+                    # PIP (Picture in Picture)
+                    "KEY_PIP_ONOFF", "KEY_PIP_SWAP", "KEY_PIP_CHUP", "KEY_PIP_CHDOWN",
+                    # Additional sources
+                    "KEY_COMPONENT1", "KEY_COMPONENT2", "KEY_AV1", "KEY_AV2", "KEY_AV3",
+                    "KEY_SVIDEO1", "KEY_SVIDEO2", "KEY_PC", "KEY_DVI", "KEY_RGB",
+                    # Sound controls
+                    "KEY_SOUNDMODE", "KEY_MONO", "KEY_STEREO", "KEY_DUAL", "KEY_SURROUND",
+                    # Picture controls
+                    "KEY_PMODE", "KEY_PSIZE", "KEY_POSITION", "KEY_PIP_SIZE", "KEY_PIP_POSITION",
+                    # Additional functions
+                    "KEY_MAGIC_CHANNEL", "KEY_MAGIC_INFO", "KEY_MAGIC_PICTURE", "KEY_MAGIC_SOUND",
+                    "KEY_DVR", "KEY_DVR_MENU", "KEY_ANTENA", "KEY_CLOCK_DISPLAY",
+                    "KEY_SETUP_CLOCK_TIMER", "KEY_FACTORY", "KEY_11", "KEY_12"
+                ]
+                
+                working_keys = []
+                failed_keys = []
+                total_keys = len(test_keys)
+                
+                results_text.insert(tk.END, f"Scanning {total_keys} TV commands...\n")
+                results_text.insert(tk.END, "=" * 60 + "\n\n")
+                results_text.update()
+                
+                for i, key in enumerate(test_keys):
+                    try:
+                        # Update progress
+                        progress_var.set((i / total_keys) * 100)
+                        status_label.config(text=f"Testing: {key} ({i+1}/{total_keys})")
+                        scan_window.update()
+                        
+                        # Try to send the key
+                        self.remote.control(key)
+                        
+                        # If we get here without exception, key is supported
+                        working_keys.append(key)
+                        results_text.insert(tk.END, f"✓ {key}\n")
+                        results_text.see(tk.END)
+                        results_text.update()
+                        
+                        # Small delay to avoid overwhelming the TV
+                        time.sleep(0.1)
+                        
+                    except Exception as e:
+                        failed_keys.append((key, str(e)))
+                        results_text.insert(tk.END, f"✗ {key} - {str(e)}\n")
+                        results_text.see(tk.END)
+                        results_text.update()
+                
+                # Final results
+                progress_var.set(100)
+                status_label.config(text=f"Scan complete! Found {len(working_keys)} working commands.")
+                
+                results_text.insert(tk.END, "\n" + "=" * 60 + "\n")
+                results_text.insert(tk.END, f"SCAN RESULTS SUMMARY:\n")
+                results_text.insert(tk.END, f"Working commands: {len(working_keys)}\n")
+                results_text.insert(tk.END, f"Failed commands: {len(failed_keys)}\n")
+                results_text.insert(tk.END, f"Success rate: {(len(working_keys)/total_keys)*100:.1f}%\n\n")
+                
+                if working_keys:
+                    results_text.insert(tk.END, "WORKING COMMANDS:\n")
+                    for key in working_keys:
+                        results_text.insert(tk.END, f"  {key}\n")
+                
+                results_text.see(tk.END)
+                results_text.config(state=tk.DISABLED)
+                
+                # Save results to file
+                self.save_scan_results(working_keys, failed_keys)
+                
+            except Exception as e:
+                status_label.config(text=f"Scan failed: {str(e)}", fg='#ff4444')
+                results_text.insert(tk.END, f"\nScan failed: {str(e)}")
+                logging.error(f"TV API scan failed: {e}")
+        
+        # Start scanning in background thread
+        import threading
+        scan_thread = threading.Thread(target=scan_commands, daemon=True)
+        scan_thread.start()
+        
+        # Bind mousewheel to canvas
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<MouseWheel>", on_mousewheel)
+
+    def save_scan_results(self, working_keys, failed_keys):
+        """Save scan results to a file"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"tv_api_scan_{timestamp}.txt"
+            
+            with open(filename, 'w') as f:
+                f.write("Samsung TV API Scan Results\n")
+                f.write("=" * 50 + "\n")
+                f.write(f"Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"TV IP: {self.config.get('host', 'Unknown')}\n\n")
+                
+                f.write(f"WORKING COMMANDS ({len(working_keys)}):\n")
+                f.write("-" * 30 + "\n")
+                for key in working_keys:
+                    f.write(f"{key}\n")
+                
+                f.write(f"\nFAILED COMMANDS ({len(failed_keys)}):\n")
+                f.write("-" * 30 + "\n")
+                for key, error in failed_keys:
+                    f.write(f"{key} - {error}\n")
+            
+            logging.info(f"Scan results saved to: {filename}")
+            
+        except Exception as e:
+            logging.error(f"Failed to save scan results: {e}")
 
     def show_command_history(self):
         """Display command history in a new window"""
