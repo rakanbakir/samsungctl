@@ -58,6 +58,12 @@ class ModernSamsungRemote:
             }
             logging.warning("Config loading failed, using default configuration")
 
+        # Initialize connection status
+        self.connection_status = "Disconnected"
+        
+        # Initialize remote connection
+        self.remote = None
+
         # Load logo
         try:
             self.logo_image = tk.PhotoImage(file="samsung_icon.png")
@@ -72,20 +78,28 @@ class ModernSamsungRemote:
         # Create scrollable canvas
         self.create_scrollable_canvas()
 
-        # Initialize connection
-        self.remote = None
-        self.connect_to_tv()
+        # Initialize command history
+        self.command_history = []
+        self.max_history = 10
 
         # Create main layout inside scrollable frame
         self.create_header()
         self.create_main_remote()
         self.create_footer()
 
+        # Update initial connection status display
+        self.update_connection_status()
+
         # Setup keyboard navigation
         self.setup_keyboard_navigation()
 
         # Configure scrolling
         self.configure_scrolling()
+
+        # Auto-connect if IP is configured
+        if self.config and self.config.get("host"):
+            logging.info("IP address configured, attempting automatic connection...")
+            self.connect_to_tv()
 
         # Bind close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -214,9 +228,32 @@ class ModernSamsungRemote:
                 logging.info(f"Sending control command: {key}")
                 self.remote.control(key)
                 logging.info(f"Sent key command: {key}")
+                
+                # Add to command history
+                from datetime import datetime
+                self.command_history.insert(0, {
+                    'command': key,
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'success': True
+                })
+                # Keep only last N commands
+                if len(self.command_history) > self.max_history:
+                    self.command_history.pop()
+                    
             except Exception as e:
                 error_msg = str(e)
                 logging.error(f"Failed to send command {key}: {error_msg}")
+                
+                # Add failed command to history
+                from datetime import datetime
+                self.command_history.insert(0, {
+                    'command': key,
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'success': False,
+                    'error': error_msg
+                })
+                if len(self.command_history) > self.max_history:
+                    self.command_history.pop()
                 
                 # Check for common connection errors and attempt reconnection
                 if "Broken pipe" in error_msg or "Connection" in error_msg or "[Errno 32]" in error_msg:
@@ -230,6 +267,9 @@ class ModernSamsungRemote:
                             logging.info(f"Retrying command after reconnection: {key}")
                             self.remote.control(key)
                             logging.info(f"Successfully sent command after reconnection: {key}")
+                            # Update history to show successful retry
+                            self.command_history[0]['success'] = True
+                            self.command_history[0]['retried'] = True
                             return
                         except Exception as retry_error:
                             logging.error(f"Failed to send command even after reconnection: {retry_error}")
@@ -242,19 +282,11 @@ class ModernSamsungRemote:
     def update_connection_status(self):
         """Update the connection status display in the header"""
         try:
-            # Find the status label in the header and update it
-            for widget in self.scrollable_frame.winfo_children():
-                if hasattr(widget, 'winfo_children'):
-                    for child in widget.winfo_children():
-                        if hasattr(child, 'winfo_children'):
-                            for grandchild in child.winfo_children():
-                                if hasattr(grandchild, 'cget') and grandchild.cget('text').startswith('●'):
-                                    # Update the status text and color
-                                    status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else f"{self.connection_status}")
-                                    status_color = '#ff4444' if self.connection_status != "Connected" else '#00ff00'
-                                    grandchild.config(text=f"● {status_text}", fg=status_color)
-                                    logging.info(f"Connection status updated to: {status_text}")
-                                    return
+            if hasattr(self, 'status_label') and self.status_label.winfo_exists():
+                status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else f"{self.connection_status}")
+                status_color = '#ff4444' if self.connection_status != "Connected" else '#00ff00'
+                self.status_label.config(text=f"● {status_text}", fg=status_color)
+                logging.info(f"Connection status updated to: {status_text}")
         except Exception as e:
             logging.error(f"Failed to update connection status display: {e}")
 
@@ -265,11 +297,15 @@ class ModernSamsungRemote:
             self.remote = samsungctl.Remote(self.config).__enter__()
             self.connection_status = "Connected"
             logging.info("Successfully connected to Samsung TV")
+            # Update the UI status
+            self.update_connection_status()
             # Start connection monitoring
             self.start_connection_monitor()
         except Exception as e:
             self.connection_status = "Disconnected"
             logging.error(f"Failed to connect to TV: {str(e)}")
+            # Update the UI status
+            self.update_connection_status()
             messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
 
     def start_connection_monitor(self):
@@ -277,22 +313,24 @@ class ModernSamsungRemote:
         def check_connection():
             if self.remote and self.connection_status == "Connected":
                 try:
-                    # Try a simple command to test connection (KEY_INFO is usually safe)
-                    self.remote.control("KEY_INFO")
-                    # If we get here, connection is still good
-                    logging.debug("Connection health check passed")
+                    # Check if remote connection is still valid by attempting to access its attributes
+                    # This is less intrusive than sending commands
+                    if hasattr(self.remote, 'control') and callable(getattr(self.remote, 'control')):
+                        logging.debug("Connection health check passed - remote object is valid")
+                    else:
+                        raise Exception("Remote object is invalid")
                 except Exception as e:
                     logging.warning(f"Connection health check failed: {str(e)}")
                     self.connection_status = "Disconnected"
-                    # Update status display
+                    # Update the UI status
                     self.update_connection_status()
                     
-            # Schedule next check in 30 seconds
+            # Schedule next check in 60 seconds (increased from 30 to be less intrusive)
             if self.connection_status == "Connected":
-                self.root.after(30000, check_connection)
+                self.root.after(60000, check_connection)
         
-        # Start monitoring after 30 seconds
-        self.root.after(30000, check_connection)
+        # Start monitoring after 60 seconds
+        self.root.after(60000, check_connection)
         logging.info("Connection monitoring started")
 
     def create_header(self):
@@ -319,11 +357,9 @@ class ModernSamsungRemote:
         subtitle_label.pack(anchor=tk.W)
 
         # Connection status
-        status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else "Disconnected")
-        status_color = '#ff4444' if not self.config.get("host") else ('#00ff00' if self.connection_status == "Connected" else '#ff4444')
-        status_label = tk.Label(header_frame, text=f"● {status_text}",
-                               font=('Segoe UI', 8), fg=status_color, bg='#0078d4')
-        status_label.pack(side=tk.RIGHT, padx=15, anchor=tk.S)
+        self.status_label = tk.Label(header_frame, text="● Disconnected",
+                                   font=('Segoe UI', 8), fg='#ff4444', bg='#0078d4')
+        self.status_label.pack(side=tk.RIGHT, padx=15, anchor=tk.S)
 
     def create_main_remote(self):
         """Create the main remote control interface"""
@@ -475,24 +511,54 @@ class ModernSamsungRemote:
             ('Guide', 'KEY_GUIDE'),
             ('Info', 'KEY_INFO'),
             ('Back', 'KEY_RETURN'),
-            ('Mute', 'KEY_MUTE')
+            ('Mute', 'KEY_MUTE'),
+            ('History', None)  # Special button for command history
         ]
 
-        # Arrange in 2 rows of 3 buttons each
+        # Arrange in 2 rows of 4 buttons each (added History button)
         for i, (func_name, key) in enumerate(functions):
-            row = i // 3
-            col = i % 3
-            def make_func_command(k):
-                return lambda: self.send_key(k)
-            func_btn = tk.Button(func_frame, text=func_name, command=make_func_command(key),
-                                font=('Segoe UI', 9), bg=self.button_bg, fg=self.text_color,
-                                width=8, height=2, relief='raised', bd=1, takefocus=1)
-            func_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
-            self.add_button_hover(func_btn, self.button_hover, self.button_bg)
+            row = i // 4
+            col = i % 4
+            if func_name == 'History':
+                # Special history button
+                history_btn = tk.Button(func_frame, text=func_name, command=self.show_command_history,
+                                       font=('Segoe UI', 9), bg=self.accent_color, fg='white',
+                                       width=8, height=2, relief='raised', bd=1, takefocus=1)
+                history_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
+                self.add_button_hover(history_btn, '#0099ff', self.accent_color)
+            else:
+                def make_func_command(k):
+                    return lambda: self.send_key(k)
+                func_btn = tk.Button(func_frame, text=func_name, command=make_func_command(key),
+                                    font=('Segoe UI', 9), bg=self.button_bg, fg=self.text_color,
+                                    width=8, height=2, relief='raised', bd=1, takefocus=1)
+                func_btn.grid(row=row, column=col, padx=3, pady=3, sticky='nsew')
+                self.add_button_hover(func_btn, self.button_hover, self.button_bg)
 
-        # Make sure the grid columns have equal weight
-        for i in range(3):
-            func_frame.grid_columnconfigure(i, weight=1)
+        # App shortcuts section
+        apps_frame = ttk.Frame(main_frame, style='Card.TFrame')
+        apps_frame.pack(pady=10)
+
+        apps_label = tk.Label(apps_frame, text="Quick Apps", font=('Segoe UI', 10, 'bold'),
+                             fg=self.text_color, bg=self.bg_color)
+        apps_label.pack(anchor=tk.W, pady=(0, 5))
+
+        # Common app shortcuts
+        app_shortcuts = [
+            ("🎬", "Netflix", "KEY_RED"),  # Using color keys as placeholders
+            ("📺", "YouTube", "KEY_GREEN"),
+            ("🎵", "Spotify", "KEY_YELLOW"),
+            ("🎮", "Gaming", "KEY_BLUE")
+        ]
+
+        for i, (icon, app_name, key) in enumerate(app_shortcuts):
+            def make_app_command(k, name):
+                return lambda: self.launch_app(k, name)
+            app_btn = tk.Button(apps_frame, text=f"{icon} {app_name}", command=make_app_command(key, app_name),
+                               font=('Segoe UI', 8), bg=self.button_bg, fg=self.text_color,
+                               width=12, height=1, relief='raised', bd=1, takefocus=1)
+            app_btn.pack(side=tk.LEFT, padx=2)
+            self.add_button_hover(app_btn, self.button_hover, self.button_bg)
 
     def create_footer(self):
         """Create footer with IP configuration"""
@@ -514,13 +580,6 @@ class ModernSamsungRemote:
                               relief='raised', bd=1, padx=10)
         update_btn.pack(side=tk.LEFT)
         self.add_button_hover(update_btn, '#0099ff', self.accent_color)
-
-        # Reconnect button
-        reconnect_btn = tk.Button(footer_frame, text="Reconnect", command=self.reconnect_tv,
-                                 font=('Segoe UI', 9), bg='#28a745', fg='white',
-                                 relief='raised', bd=1, padx=10)
-        reconnect_btn.pack(side=tk.LEFT, padx=(10, 0))
-        self.add_button_hover(reconnect_btn, '#218838', '#28a745')
 
     def create_round_button(self, parent, text, key, size=12):
         """Create a round button with hover effects"""
@@ -610,14 +669,107 @@ class ModernSamsungRemote:
             logging.warning("Attempted to update IP with empty value")
             messagebox.showerror("Error", "Please enter a valid IP address")
 
-    def reconnect_tv(self):
-        """Manually reconnect to the TV"""
-        logging.info("Manual reconnection requested")
-        self.connect_to_tv()
-        if self.connection_status == "Connected":
-            messagebox.showinfo("Reconnected", "Successfully reconnected to TV")
-        else:
-            messagebox.showerror("Reconnection Failed", "Could not reconnect to TV. Check IP address and TV status.")
+    def launch_app(self, key, app_name):
+        """Launch a specific app using the provided key sequence"""
+        logging.info(f"Launching app: {app_name}")
+        try:
+            # For now, just send the key - this may need to be customized based on TV menu layout
+            self.send_key(key)
+            logging.info(f"App launch command sent for: {app_name}")
+        except Exception as e:
+            logging.error(f"Failed to launch app {app_name}: {e}")
+            messagebox.showerror("App Launch Error", f"Could not launch {app_name}")
+
+    def set_picture_mode(self, mode_name):
+        """Set picture mode (Standard, Movie, Dynamic, Game)"""
+        logging.info(f"Setting picture mode to: {mode_name}")
+        try:
+            # Navigate to settings menu - this sequence may need adjustment
+            self.send_key("KEY_MENU")  # Open menu
+            time.sleep(0.5)
+            self.send_key("KEY_DOWN")  # Navigate to Picture
+            time.sleep(0.5)
+            self.send_key("KEY_ENTER")  # Enter Picture menu
+            time.sleep(0.5)
+            # Navigate to Picture Mode (this varies by TV model)
+            self.send_key("KEY_DOWN")
+            time.sleep(0.5)
+            self.send_key("KEY_ENTER")  # Enter Picture Mode submenu
+            time.sleep(0.5)
+            # Select the desired mode
+            mode_nav = {
+                "Standard": ["KEY_ENTER"],  # Usually first option
+                "Movie": ["KEY_DOWN", "KEY_ENTER"],
+                "Dynamic": ["KEY_DOWN", "KEY_DOWN", "KEY_ENTER"],
+                "Game": ["KEY_DOWN", "KEY_DOWN", "KEY_DOWN", "KEY_ENTER"]
+            }
+            if mode_name in mode_nav:
+                for key in mode_nav[mode_name]:
+                    self.send_key(key)
+                    time.sleep(0.5)
+            logging.info(f"Picture mode set to: {mode_name}")
+        except Exception as e:
+            logging.error(f"Failed to set picture mode to {mode_name}: {e}")
+            messagebox.showerror("Picture Mode Error", f"Could not set picture mode to {mode_name}")
+
+    def switch_input(self, key, input_name):
+        """Switch to a specific input source"""
+        logging.info(f"Switching to input: {input_name}")
+        try:
+            self.send_key("KEY_SOURCE")  # Open input selector
+            # Navigate to desired input (this may need adjustment based on TV menu layout)
+            self.root.after(500, lambda: self.send_key(key))
+            logging.info(f"Input switch command sent for: {input_name}")
+        except Exception as e:
+            logging.error(f"Failed to switch to input {input_name}: {e}")
+            messagebox.showerror("Input Error", f"Could not switch to {input_name}")
+
+    def show_command_history(self):
+        """Display command history in a new window"""
+        history_window = tk.Toplevel(self.root)
+        history_window.title("Command History")
+        history_window.geometry("500x400")
+        
+        # Create text widget for history
+        history_text = tk.Text(history_window, wrap=tk.WORD, padx=10, pady=10)
+        scrollbar = tk.Scrollbar(history_window, command=history_text.yview)
+        history_text.config(yscrollcommand=scrollbar.set)
+        
+        # Pack widgets
+        history_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Add history entries
+        history_text.insert(tk.END, "Command History (Most Recent First):\n")
+        history_text.insert(tk.END, "=" * 50 + "\n\n")
+        
+        for i, entry in enumerate(self.command_history, 1):
+            status = "✓" if entry['success'] else "✗"
+            retried = " (Retried)" if entry.get('retried') else ""
+            error_info = f" - Error: {entry['error']}" if not entry['success'] and 'error' in entry else ""
+            
+            history_text.insert(tk.END, f"{i}. [{entry['timestamp']}] {entry['command']} {status}{retried}{error_info}\n")
+        
+        if not self.command_history:
+            history_text.insert(tk.END, "No commands sent yet.\n")
+        
+        history_text.config(state=tk.DISABLED)  # Make read-only
+        
+        # Add clear history button
+        clear_button = tk.Button(history_window, text="Clear History", 
+                                command=lambda: self.clear_command_history(history_window, history_text))
+        clear_button.pack(pady=5)
+
+    def clear_command_history(self, window, text_widget):
+        """Clear the command history"""
+        self.command_history.clear()
+        text_widget.config(state=tk.NORMAL)
+        text_widget.delete(1.0, tk.END)
+        text_widget.insert(tk.END, "Command History (Most Recent First):\n")
+        text_widget.insert(tk.END, "=" * 50 + "\n\n")
+        text_widget.insert(tk.END, "History cleared.\n")
+        text_widget.config(state=tk.DISABLED)
+        logging.info("Command history cleared by user")
 
     def save_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
