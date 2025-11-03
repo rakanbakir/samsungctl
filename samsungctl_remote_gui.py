@@ -6,9 +6,39 @@ from tkinter import messagebox
 import samsungctl
 import json
 import os
+import logging
+from datetime import datetime
+
+# Configure logging
+def setup_logging():
+    """Setup logging to file and console"""
+    # Create logs directory if it doesn't exist
+    log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Create log filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"samsung_remote_{timestamp}.log")
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler()  # Also log to console
+        ]
+    )
+    
+    logging.info(f"Logging initialized. Log file: {log_file}")
+    return log_file
+
+# Initialize logging
+log_file = setup_logging()
 
 class ModernSamsungRemote:
     def __init__(self, root):
+        logging.info("Initializing Samsung TV Remote GUI")
         self.root = root
         self.root.title("Samsung TV Remote")
         self.root.geometry("480x750")
@@ -26,12 +56,14 @@ class ModernSamsungRemote:
                 "port": 8001,
                 "timeout": 5
             }
+            logging.warning("Config loading failed, using default configuration")
 
         # Load logo
         try:
             self.logo_image = tk.PhotoImage(file="samsung_icon.png")
+            logging.info("Logo image loaded successfully")
         except Exception as e:
-            print(f"Could not load logo: {e}")
+            logging.warning(f"Could not load logo: {e}")
             self.logo_image = None
 
         # Setup modern styling
@@ -57,6 +89,8 @@ class ModernSamsungRemote:
 
         # Bind close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        logging.info("Samsung TV Remote GUI initialization completed")
 
     def setup_styles(self):
         """Setup modern styling for buttons and widgets"""
@@ -145,18 +179,20 @@ class ModernSamsungRemote:
                 delta = -1 * (event.delta // 120)  # -1 for down, 1 for up
                 self.canvas.yview_scroll(delta, "units")
                 self.update_scroll_indicator()
+                logging.debug(f"Mouse wheel scroll: delta={event.delta}, direction={delta}")
                 return "break"  # Consume the event
             except Exception as e:
-                print(f"Mouse wheel error: {e}")
+                logging.error(f"Mouse wheel error: {e}")
                 return "break"
 
         def on_shift_mousewheel(event):
             try:
                 delta = -1 * (event.delta // 120)
                 self.canvas.xview_scroll(delta, "units")
+                logging.debug(f"Shift mouse wheel scroll: delta={event.delta}, direction={delta}")
                 return "break"
             except Exception as e:
-                print(f"Shift mouse wheel error: {e}")
+                logging.error(f"Shift mouse wheel error: {e}")
                 return "break"
 
         # Bind to root window - this catches mouse wheel events anywhere in the window
@@ -175,20 +211,89 @@ class ModernSamsungRemote:
         """Send a key command to the TV"""
         if self.remote:
             try:
+                logging.info(f"Sending control command: {key}")
                 self.remote.control(key)
+                logging.info(f"Sent key command: {key}")
             except Exception as e:
-                messagebox.showerror("Error", f"Failed to send command: {str(e)}")
+                error_msg = str(e)
+                logging.error(f"Failed to send command {key}: {error_msg}")
+                
+                # Check for common connection errors and attempt reconnection
+                if "Broken pipe" in error_msg or "Connection" in error_msg or "[Errno 32]" in error_msg:
+                    logging.warning("Connection lost, attempting to reconnect...")
+                    self.connection_status = "Reconnecting"
+                    self.connect_to_tv()
+                    
+                    # If reconnection successful, retry the command
+                    if self.connection_status == "Connected":
+                        try:
+                            logging.info(f"Retrying command after reconnection: {key}")
+                            self.remote.control(key)
+                            logging.info(f"Successfully sent command after reconnection: {key}")
+                            return
+                        except Exception as retry_error:
+                            logging.error(f"Failed to send command even after reconnection: {retry_error}")
+                
+                messagebox.showerror("Error", f"Failed to send command: {error_msg}")
         else:
+            logging.warning(f"Attempted to send key {key} but no TV connection available")
             messagebox.showwarning("Not Connected", "Please connect to TV first")
+
+    def update_connection_status(self):
+        """Update the connection status display in the header"""
+        try:
+            # Find the status label in the header and update it
+            for widget in self.scrollable_frame.winfo_children():
+                if hasattr(widget, 'winfo_children'):
+                    for child in widget.winfo_children():
+                        if hasattr(child, 'winfo_children'):
+                            for grandchild in child.winfo_children():
+                                if hasattr(grandchild, 'cget') and grandchild.cget('text').startswith('●'):
+                                    # Update the status text and color
+                                    status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else f"{self.connection_status}")
+                                    status_color = '#ff4444' if self.connection_status != "Connected" else '#00ff00'
+                                    grandchild.config(text=f"● {status_text}", fg=status_color)
+                                    logging.info(f"Connection status updated to: {status_text}")
+                                    return
+        except Exception as e:
+            logging.error(f"Failed to update connection status display: {e}")
 
     def connect_to_tv(self):
         """Establish connection to TV"""
+        logging.info(f"Attempting to connect to TV at {self.config.get('host', 'unknown')} using {self.config.get('method', 'unknown')} method")
         try:
             self.remote = samsungctl.Remote(self.config).__enter__()
             self.connection_status = "Connected"
+            logging.info("Successfully connected to Samsung TV")
+            # Start connection monitoring
+            self.start_connection_monitor()
         except Exception as e:
             self.connection_status = "Disconnected"
+            logging.error(f"Failed to connect to TV: {str(e)}")
             messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
+
+    def start_connection_monitor(self):
+        """Start monitoring connection health"""
+        def check_connection():
+            if self.remote and self.connection_status == "Connected":
+                try:
+                    # Try a simple command to test connection (KEY_INFO is usually safe)
+                    self.remote.control("KEY_INFO")
+                    # If we get here, connection is still good
+                    logging.debug("Connection health check passed")
+                except Exception as e:
+                    logging.warning(f"Connection health check failed: {str(e)}")
+                    self.connection_status = "Disconnected"
+                    # Update status display
+                    self.update_connection_status()
+                    
+            # Schedule next check in 30 seconds
+            if self.connection_status == "Connected":
+                self.root.after(30000, check_connection)
+        
+        # Start monitoring after 30 seconds
+        self.root.after(30000, check_connection)
+        logging.info("Connection monitoring started")
 
     def create_header(self):
         """Create header with logo and title"""
@@ -410,6 +515,13 @@ class ModernSamsungRemote:
         update_btn.pack(side=tk.LEFT)
         self.add_button_hover(update_btn, '#0099ff', self.accent_color)
 
+        # Reconnect button
+        reconnect_btn = tk.Button(footer_frame, text="Reconnect", command=self.reconnect_tv,
+                                 font=('Segoe UI', 9), bg='#28a745', fg='white',
+                                 relief='raised', bd=1, padx=10)
+        reconnect_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.add_button_hover(reconnect_btn, '#218838', '#28a745')
+
     def create_round_button(self, parent, text, key, size=12):
         """Create a round button with hover effects"""
         btn = tk.Button(parent, text=text, command=lambda: self.send_key(key),
@@ -441,6 +553,8 @@ class ModernSamsungRemote:
 
     def setup_keyboard_navigation(self):
         """Setup keyboard shortcuts for better accessibility"""
+        logging.info("Setting up keyboard navigation shortcuts")
+        
         # Number keys for direct access
         for i in range(10):
             self.root.bind(str(i), lambda e, num=i: self.send_key(f"KEY_{num}"))
@@ -464,18 +578,23 @@ class ModernSamsungRemote:
 
         # Focus management - ensure buttons can receive focus
         self.root.focus_set()
+        
+        logging.info("Keyboard navigation shortcuts configured")
 
     def load_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
+        logging.info(f"Attempting to load config from: {config_path}")
         if os.path.exists(config_path):
             try:
                 with open(config_path, 'r') as f:
-                    return json.load(f)
+                    config = json.load(f)
+                logging.info("Configuration loaded successfully")
+                return config
             except Exception as e:
-                print(f"Error loading config: {e}")
+                logging.error(f"Error loading config: {e}")
                 return None
         else:
-            print("Config file not found. Using default settings.")
+            logging.warning("Config file not found. Using default settings.")
             return None
 
     def update_ip(self):
@@ -483,17 +602,32 @@ class ModernSamsungRemote:
         if new_ip:
             self.config["host"] = new_ip
             self.save_config()
+            logging.info(f"TV IP updated to: {new_ip}")
             messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
             # Reconnect with new IP
             self.connect_to_tv()
         else:
+            logging.warning("Attempted to update IP with empty value")
             messagebox.showerror("Error", "Please enter a valid IP address")
+
+    def reconnect_tv(self):
+        """Manually reconnect to the TV"""
+        logging.info("Manual reconnection requested")
+        self.connect_to_tv()
+        if self.connection_status == "Connected":
+            messagebox.showinfo("Reconnected", "Successfully reconnected to TV")
+        else:
+            messagebox.showerror("Reconnection Failed", "Could not reconnect to TV. Check IP address and TV status.")
 
     def save_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        with open(config_path, 'w') as f:
-            json.dump(self.config, f, indent=4)
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            logging.info(f"Configuration saved to: {config_path}")
+        except Exception as e:
+            logging.error(f"Failed to save configuration: {e}")
 
     def update_scroll_indicator(self):
         """Update the scroll position indicator"""
@@ -508,24 +642,39 @@ class ModernSamsungRemote:
                 self.scroll_indicator.place(relx=0.95, rely=0.05, anchor='center')
             else:
                 self.scroll_indicator.place_forget()
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"Error updating scroll indicator: {e}")
 
     def scroll_to_top(self):
         """Scroll to the top of the interface"""
+        logging.debug("Scroll to top requested")
         if self.canvas.winfo_exists():
-            self.canvas.yview_moveto(0.0)
-            self.update_scroll_indicator()
+            try:
+                self.canvas.yview_moveto(0.0)
+                self.update_scroll_indicator()
+                logging.debug("Scrolled to top successfully")
+            except Exception as e:
+                logging.error(f"Error scrolling to top: {e}")
 
     def on_close(self):
+        logging.info("Application shutdown initiated")
         if self.remote:
             try:
                 self.remote.__exit__(None, None, None)
+                logging.info("TV connection closed successfully")
             except:
-                pass
+                logging.warning("Error occurred while closing TV connection")
+        logging.info("Application shutdown completed")
         self.root.destroy()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = ModernSamsungRemote(root)
-    root.mainloop()
+    logging.info("Starting Samsung TV Remote GUI application")
+    try:
+        root = tk.Tk()
+        app = ModernSamsungRemote(root)
+        logging.info("Entering main event loop")
+        root.mainloop()
+        logging.info("Main event loop exited")
+    except Exception as e:
+        logging.critical(f"Critical error in main application: {e}")
+        raise
