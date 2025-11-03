@@ -121,27 +121,36 @@ Network TV Discovery
 The Samsung TV Remote GUI includes advanced network discovery features to automatically find and connect to Samsung TVs on your local network:
 
 **Discovery Methods:**
-- **UPnP/SSDP Discovery**: Uses Universal Plug and Play protocol to quickly discover Samsung TVs by sending multicast discovery requests
-- **Port Scanning**: Falls back to scanning common Samsung TV ports (8001, 8002) across your network subnet
+- **UPnP/SSDP Discovery**: Uses Universal Plug and Play protocol to quickly discover Samsung TVs by sending multicast discovery requests (works across all subnets)
+- **Port Scanning**: Scans common Samsung TV ports (8001, 8002) across configured network subnets
+- **Multi-Subnet Support**: Configure multiple subnets to scan for TVs on different network segments
 - **IP Conflict Detection**: Checks for potential IP address conflicts before connecting to prevent connection issues
 
 **How to Use Discovery:**
 1. Click the "Discover TVs" button in the footer of the application
-2. The application will scan your network using UPnP first (faster), then port scanning if needed
-3. Discovered TVs will be displayed in a list with their IP addresses and discovery method
-4. Click "Connect" next to any discovered TV to automatically configure and connect
-5. If an IP conflict is detected, you'll receive a warning with suggestions for resolution
+2. Configure the subnets you want to scan in the "Network Subnets to Scan" section:
+   - Your local subnet is automatically detected and added
+   - Add additional subnets using the format "192.168.2.0/24" (replace with your network)
+   - Remove unwanted subnets using the Remove button
+3. Click "Start Discovery" to begin scanning
+4. The application will scan UPnP first (across all subnets), then port scan each configured subnet
+5. Discovered TVs will be displayed in a list with their IP addresses and discovery method
+6. Click "Connect" next to any discovered TV to automatically configure and connect
+7. If an IP conflict is detected, you'll receive a warning with suggestions for resolution
 
 **Discovery Features:**
-- **Automatic Method Selection**: UPnP is prioritized for faster, more reliable discovery
+- **Automatic Local Subnet Detection**: Your current network is automatically included
+- **Persistent Subnet Configuration**: Added subnets are saved and remembered for future scans
+- **Cross-Subnet Discovery**: UPnP discovery works across different network segments
 - **Progress Feedback**: Real-time progress updates during network scanning
 - **Conflict Prevention**: IP conflict detection helps avoid connection problems
 - **One-Click Setup**: Discovered TVs can be connected with a single click
 - **Network Timeout Handling**: Graceful handling of network timeouts and unavailable devices
 
 **Technical Details:**
-- UPnP discovery uses SSDP (Simple Service Discovery Protocol) with M-SEARCH requests
-- Port scanning covers the local subnet (192.168.x.x range by default)
+- UPnP discovery uses SSDP (Simple Service Discovery Protocol) with M-SEARCH requests (works across all configured subnets)
+- Port scanning covers configured subnets (e.g., 192.168.1.0/24, 192.168.2.0/24) with up to 50 IPs per subnet
+- Subnet configuration is saved in ``~/.config/samsungctl.conf`` for persistence across sessions
 - IP conflict detection uses ARP table checking and ping verification
 - All discovery operations run in background threads to keep the UI responsive
 

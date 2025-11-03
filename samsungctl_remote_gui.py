@@ -92,6 +92,9 @@ class ModernSamsungRemote:
         # Load app sequences from config
         self.app_sequences = self.config.get('app_sequences', {}) if self.config else {}
 
+        # Load discovery subnets from config
+        self.discovery_subnets = self.config.get('discovery_subnets', []) if self.config else []
+
         # Create main layout inside scrollable frame
         self.create_header()
         self.create_main_remote()
@@ -944,7 +947,7 @@ class ModernSamsungRemote:
         # Create discovery dialog
         discover_window = tk.Toplevel(self.root)
         discover_window.title("Discover Samsung TVs")
-        discover_window.geometry("600x500")
+        discover_window.geometry("600x550")
         discover_window.configure(bg=self.bg_color)
         discover_window.resizable(True, True)
         
@@ -953,9 +956,77 @@ class ModernSamsungRemote:
                               font=('Segoe UI', 16, 'bold'), fg=self.text_color, bg=self.bg_color)
         title_label.pack(pady=10)
         
+        # Subnet configuration section
+        subnet_frame = ttk.Frame(discover_window, style='Card.TFrame')
+        subnet_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        subnet_title = tk.Label(subnet_frame, text="Network Subnets to Scan:",
+                               font=('Segoe UI', 11, 'bold'), fg=self.text_color, bg=self.bg_color)
+        subnet_title.pack(anchor=tk.W, padx=10, pady=(10, 5))
+        
+        # Get local subnet automatically
+        local_ip = self._get_local_ip()
+        local_subnet = self._get_subnet(local_ip) if local_ip else "192.168.1.0/24"
+        
+        # Subnet entry with local subnet pre-filled
+        subnet_entry = tk.Entry(subnet_frame, width=30, font=('Segoe UI', 9),
+                               bg=self.button_bg, fg=self.text_color, insertbackground=self.text_color)
+        subnet_entry.insert(0, local_subnet)
+        subnet_entry.pack(side=tk.LEFT, padx=(10, 5), pady=5)
+        
+        # Add subnet button
+        subnet_listbox = tk.Listbox(subnet_frame, height=3, width=35, font=('Segoe UI', 8),
+                                   bg=self.button_bg, fg=self.text_color, selectbackground=self.accent_color)
+        subnet_listbox.pack(side=tk.LEFT, padx=(0, 10), pady=5)
+        
+        # Pre-populate with saved subnets or local subnet
+        saved_subnets = self.discovery_subnets if self.discovery_subnets else [local_subnet]
+        for subnet in saved_subnets:
+            subnet_listbox.insert(tk.END, subnet)
+        
+        def add_subnet():
+            subnet = subnet_entry.get().strip()
+            if subnet and subnet not in subnet_listbox.get(0, tk.END):
+                try:
+                    # Validate subnet format
+                    ipaddress.ip_network(subnet, strict=False)
+                    subnet_listbox.insert(tk.END, subnet)
+                    subnet_entry.delete(0, tk.END)
+                    logging.info(f"Added subnet to scan: {subnet}")
+                    # Save updated subnets
+                    self._save_discovery_subnets(list(subnet_listbox.get(0, tk.END)))
+                except ValueError:
+                    try:
+                        if self.root and self.root.winfo_exists():
+                            messagebox.showerror("Invalid Subnet", "Please enter a valid subnet (e.g., 192.168.1.0/24)")
+                    except Exception as dialog_error:
+                        logging.error(f"Failed to show subnet error dialog: {dialog_error}")
+        
+        def remove_subnet():
+            selection = subnet_listbox.curselection()
+            if selection:
+                subnet_listbox.delete(selection[0])
+                # Save updated subnets
+                self._save_discovery_subnets(list(subnet_listbox.get(0, tk.END)))
+        
+        add_btn = tk.Button(subnet_frame, text="Add", command=add_subnet,
+                           font=('Segoe UI', 8), bg=self.accent_color, fg='white',
+                           relief='raised', bd=1, padx=8)
+        add_btn.pack(side=tk.TOP, pady=(5, 2))
+        self.add_button_hover(add_btn, '#0099ff', self.accent_color)
+        
+        remove_btn = tk.Button(subnet_frame, text="Remove", command=remove_subnet,
+                              font=('Segoe UI', 8), bg='#dc3545', fg='white',
+                              relief='raised', bd=1, padx=8)
+        remove_btn.pack(side=tk.TOP, pady=(2, 5))
+        self.add_button_hover(remove_btn, '#c82333', '#dc3545')
+        
+        # Bind Enter key to add subnet
+        subnet_entry.bind('<Return>', lambda e: add_subnet())
+        
         # Status label
-        status_label = tk.Label(discover_window, text="Scanning network for Samsung TVs...",
-                               font=('Segoe UI', 10), fg=self.accent_color, bg=self.bg_color)
+        status_label = tk.Label(discover_window, text="Ready to scan. Configure subnets above if needed.",
+                               font=('Segoe UI', 10), fg=self.secondary_text, bg=self.bg_color)
         status_label.pack(pady=5)
         
         # Progress bar
@@ -991,19 +1062,23 @@ class ModernSamsungRemote:
         # Start discovery in background thread
         def start_discovery():
             try:
-                self._perform_tv_discovery(discover_window, status_label, progress_var, results_container)
+                # Get subnets to scan from listbox
+                subnets_to_scan = list(subnet_listbox.get(0, tk.END))
+                if not subnets_to_scan:
+                    status_label.config(text="No subnets configured for scanning", fg='#ff4444')
+                    return
+                    
+                self._perform_tv_discovery(discover_window, status_label, progress_var, results_container, subnets_to_scan)
             except Exception as e:
                 logging.error(f"TV discovery failed: {e}")
                 status_label.config(text=f"Discovery failed: {str(e)}", fg='#ff4444')
         
-        # Start discovery thread
-        discovery_thread = threading.Thread(target=start_discovery, daemon=True)
-        discovery_thread.start()
-        
-        # Bind mousewheel to canvas
-        def on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        canvas.bind("<MouseWheel>", on_mousewheel)
+        # Start discovery button
+        start_btn = tk.Button(discover_window, text="🔍 Start Discovery", command=lambda: threading.Thread(target=start_discovery, daemon=True).start(),
+                             font=('Segoe UI', 10), bg='#28a745', fg='white',
+                             relief='raised', bd=1, padx=15)
+        start_btn.pack(pady=(0, 10))
+        self.add_button_hover(start_btn, '#218838', '#28a745')
         
         # Close button
         close_btn = tk.Button(discover_window, text="Close", command=discover_window.destroy,
@@ -1011,62 +1086,72 @@ class ModernSamsungRemote:
                              relief='raised', bd=1, padx=20)
         close_btn.pack(pady=(0, 10))
         self.add_button_hover(close_btn, self.button_hover, self.button_bg)
+        
+        # Bind mousewheel to canvas
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        canvas.bind("<MouseWheel>", on_mousewheel)
 
-    def _perform_tv_discovery(self, window, status_label, progress_var, results_container):
+    def _perform_tv_discovery(self, window, status_label, progress_var, results_container, subnets_to_scan):
         """Perform the actual TV discovery process"""
         discovered_tvs = []
         
         try:
-            # Get local IP and subnet
-            local_ip = self._get_local_ip()
-            if not local_ip:
-                status_label.config(text="Could not determine local IP address", fg='#ff4444')
-                return
-                
-            subnet = self._get_subnet(local_ip)
-            logging.info(f"Scanning subnet: {subnet}")
+            logging.info(f"Scanning {len(subnets_to_scan)} subnet(s): {subnets_to_scan}")
             
-            # First try UPnP discovery (faster and more reliable)
+            # First try UPnP discovery (faster and more reliable, works across subnets)
             status_label.config(text="Searching for TVs using UPnP...")
             window.update()
             upnp_tvs = self._discover_upnp_tvs()
             discovered_tvs.extend(upnp_tvs)
             
-            # Then do port scanning for any TVs not found via UPnP
-            status_label.config(text="Scanning network for additional TVs...")
-            window.update()
+            # Then do port scanning for each configured subnet
+            total_subnets = len(subnets_to_scan)
             
-            # Common Samsung TV ports
-            tv_ports = [8001, 55000]  # websocket and legacy ports
-            
-            # Generate IP range to scan (first 50 IPs in subnet)
-            ip_range = []
-            network = ipaddress.ip_network(subnet, strict=False)
-            for ip in network.hosts():
-                ip_range.append(str(ip))
-                if len(ip_range) >= 50:  # Limit scan to first 50 IPs
-                    break
-            
-            total_ips = len(ip_range)
-            status_label.config(text=f"Scanning {total_ips} IP addresses...")
-            
-            # Scan IPs in background
-            port_scan_tvs = self._scan_ip_range(ip_range, tv_ports, status_label, progress_var, window)
-            
-            # Merge results, avoiding duplicates
-            existing_ips = {tv['ip'] for tv in discovered_tvs}
-            for tv in port_scan_tvs:
-                if tv['ip'] not in existing_ips:
-                    discovered_tvs.append(tv)
+            for subnet_idx, subnet in enumerate(subnets_to_scan):
+                status_label.config(text=f"Scanning subnet {subnet_idx + 1}/{total_subnets}: {subnet}...")
+                window.update()
+                logging.info(f"Scanning subnet: {subnet}")
+                
+                # Common Samsung TV ports
+                tv_ports = [8001, 55000]  # websocket and legacy ports
+                
+                # Generate IP range to scan (first 50 IPs in subnet)
+                ip_range = []
+                try:
+                    network = ipaddress.ip_network(subnet, strict=False)
+                    for ip in network.hosts():
+                        ip_range.append(str(ip))
+                        if len(ip_range) >= 50:  # Limit scan to first 50 IPs per subnet
+                            break
+                except ValueError as e:
+                    logging.error(f"Invalid subnet format {subnet}: {e}")
+                    continue
+                
+                if not ip_range:
+                    logging.warning(f"No IP addresses found in subnet {subnet}")
+                    continue
+                
+                total_ips = len(ip_range)
+                status_label.config(text=f"Scanning {total_ips} IPs in {subnet}...")
+                
+                # Scan IPs in background
+                port_scan_tvs = self._scan_ip_range(ip_range, tv_ports, status_label, progress_var, window)
+                
+                # Merge results, avoiding duplicates
+                existing_ips = {tv['ip'] for tv in discovered_tvs}
+                for tv in port_scan_tvs:
+                    if tv['ip'] not in existing_ips:
+                        discovered_tvs.append(tv)
             
             # Update results display
             self._display_discovery_results(results_container, discovered_tvs, window)
             
             if discovered_tvs:
                 status_label.config(text=f"Found {len(discovered_tvs)} Samsung TV(s)!", fg='#28a745')
-                logging.info(f"TV discovery completed. Found {len(discovered_tvs)} TVs")
+                logging.info(f"TV discovery completed. Found {len(discovered_tvs)} TVs across {len(subnets_to_scan)} subnets")
             else:
-                status_label.config(text="No Samsung TVs found on network", fg='#ff8800')
+                status_label.config(text="No Samsung TVs found on configured subnets", fg='#ff8800')
                 logging.info("TV discovery completed. No TVs found")
                 
         except Exception as e:
@@ -1782,6 +1867,13 @@ class ModernSamsungRemote:
         text_widget.insert(tk.END, "History cleared.\n")
         text_widget.config(state=tk.DISABLED)
         logging.info("Command history cleared by user")
+
+    def _save_discovery_subnets(self, subnets):
+        """Save discovery subnets to configuration"""
+        self.discovery_subnets = subnets
+        self.config['discovery_subnets'] = subnets
+        self.save_config()
+        logging.info(f"Saved {len(subnets)} discovery subnets to configuration")
 
     def save_config(self):
         config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
