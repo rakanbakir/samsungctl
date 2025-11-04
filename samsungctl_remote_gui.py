@@ -116,7 +116,7 @@ class ModernSamsungRemote:
         # Auto-connect if IP is configured
         if self.config and self.config.get("host"):
             logging.info("IP address configured, attempting automatic connection...")
-            self.connect_to_tv()
+            self.connect_to_tv(timeout_seconds=10, show_error_dialog=False)
 
         # Bind close event
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -311,29 +311,56 @@ class ModernSamsungRemote:
         except Exception as e:
             logging.error(f"Failed to update connection status display: {e}")
 
-    def connect_to_tv(self):
-        """Establish connection to TV"""
+    def connect_to_tv(self, timeout_seconds=10, show_error_dialog=True):
+        """Establish connection to TV with timeout"""
         logging.info(f"Attempting to connect to TV at {self.config.get('host', 'unknown')} using {self.config.get('method', 'unknown')} method")
-        try:
-            self.remote = samsungctl.Remote(self.config).__enter__()
+        
+        connection_result = {'success': False, 'remote': None, 'error': None}
+        
+        def attempt_connection():
+            try:
+                remote = samsungctl.Remote(self.config).__enter__()
+                connection_result['success'] = True
+                connection_result['remote'] = remote
+            except Exception as e:
+                connection_result['error'] = str(e)
+        
+        # Start connection attempt in a separate thread
+        connection_thread = threading.Thread(target=attempt_connection, daemon=True)
+        connection_thread.start()
+        
+        # Wait for connection with timeout
+        connection_thread.join(timeout=timeout_seconds)
+        
+        if connection_thread.is_alive():
+            # Connection attempt timed out
+            logging.warning(f"TV connection attempt timed out after {timeout_seconds} seconds")
+            self.connection_status = "Disconnected"
+            self.update_connection_status()
+            return
+        
+        if connection_result['success']:
+            self.remote = connection_result['remote']
             self.connection_status = "Connected"
             logging.info("Successfully connected to Samsung TV")
             # Update the UI status
             self.update_connection_status()
             # Start connection monitoring
             self.start_connection_monitor()
-        except Exception as e:
+        else:
             self.connection_status = "Disconnected"
-            logging.error(f"Failed to connect to TV: {str(e)}")
+            error_msg = connection_result['error'] or "Unknown connection error"
+            logging.error(f"Failed to connect to TV: {error_msg}")
             # Update the UI status
             self.update_connection_status()
-            # Only show error dialog if the application is still alive
-            try:
-                if self.root and self.root.winfo_exists():
-                    messagebox.showerror("Connection Error", f"Failed to connect to TV: {str(e)}")
-            except Exception as dialog_error:
-                logging.error(f"Failed to show connection error dialog: {dialog_error}")
-                # Application might be shutting down, just log the error
+            # Only show error dialog if requested and the application is still alive
+            if show_error_dialog:
+                try:
+                    if self.root and self.root.winfo_exists():
+                        messagebox.showerror("Connection Error", f"Failed to connect to TV: {error_msg}")
+                except Exception as dialog_error:
+                    logging.error(f"Failed to show connection error dialog: {dialog_error}")
+                    # Application might be shutting down, just log the error
 
     def start_connection_monitor(self):
         """Start monitoring connection health"""
@@ -1419,7 +1446,7 @@ class ModernSamsungRemote:
                         logging.info(f"Port scan found TV: {tv}")
 
             # Update results display
-            self._display_discovery_results(results_container, discovered_tvs, window)
+            self._display_discovery_results(results_container, discovered_tvs, window, subnets_to_scan)
 
             # Log detailed results by subnet
             subnet_results = {}
@@ -1765,7 +1792,7 @@ class ModernSamsungRemote:
         
         return None
 
-    def _display_discovery_results(self, container, discovered_tvs, window):
+    def _display_discovery_results(self, container, discovered_tvs, window, subnets_to_scan):
         """Display discovered TVs in the results container"""
         # Clear existing results
         for widget in container.winfo_children():
