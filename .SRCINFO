@@ -1,8 +1,8 @@
 pkgbase = samsungctl
 	pkgdesc = Remote control Samsung televisions via TCP/IP connection
-	pkgver = 0.7.1
+	pkgver = 0.7.2
 	pkgrel = 1
-	url = https://github.com/Ape/samsungctl
+	url = https://github.com/rakanbakir/samsungctl
 	arch = any
 	license = MIT
 	depends = python
@@ -10,7 +10,7 @@ pkgbase = samsungctl
 	depends = python-pillow
 	optdepends = python-curses: for interactive UI
 	makedepends = python-setuptools
-	source = samsungctl-0.7.1.tar.gz::https://github.com/Ape/samsungctl/archive/v0.7.1.tar.gz
+	source = samsungctl-0.7.2.tar.gz::https://github.com/rakanbakir/samsungctl/archive/v0.7.2.tar.gz
 	sha256sums = SKIP
 
 pkgname = samsungctl

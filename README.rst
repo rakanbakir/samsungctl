@@ -53,7 +53,7 @@ For Arch Linux users, you can install samsungctl as a native package:
 ::
 
     # Clone the repository
-    git clone https://github.com/Ape/samsungctl.git
+    git clone https://github.com/rakanbakir/samsungctl.git
     cd samsungctl
 
     # Build and install the package

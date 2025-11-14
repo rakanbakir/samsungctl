@@ -1,15 +1,15 @@
 # Maintainer: Rakan Bakir <rakanbakir@github.com>
 pkgname=samsungctl
-pkgver=0.7.1
+pkgver=0.7.2
 pkgrel=1
 pkgdesc="Remote control Samsung televisions via TCP/IP connection"
 arch=('any')
-url="https://github.com/Ape/samsungctl"
+url="https://github.com/rakanbakir/samsungctl"
 license=('MIT')
 depends=('python' 'python-websocket-client' 'python-pillow')
 makedepends=('python-setuptools')
 optdepends=('python-curses: for interactive UI')
-source=("$pkgname-$pkgver.tar.gz::https://github.com/Ape/samsungctl/archive/v$pkgver.tar.gz")
+source=("$pkgname-$pkgver.tar.gz::https://github.com/rakanbakir/samsungctl/archive/v$pkgver.tar.gz")
 sha256sums=('SKIP')
 
 build() {
