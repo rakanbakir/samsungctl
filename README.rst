@@ -2,6 +2,8 @@
 This project has been updated
 =======================
 
+**Version 0.8.0 (November 2025) - Major update with modern Samsung TV support, enhanced GUI, and network discovery features.**
+
 **Recent updates have added support for modern Samsung TVs with persistent pairing and automatic token management. The repository remains available for continued development.**
 
 The most prominent fork as of the archival seems to be:
@@ -58,7 +60,7 @@ For Arch Linux users, you can install samsungctl as a native package:
 
     # Build and install the package
     ./build-pkg.sh
-    sudo pacman -U samsungctl-0.7.1-1-any.pkg.tar.zst
+    sudo pacman -U samsungctl-0.8.0-1-any.pkg.tar.zst
 
     # Or uninstall later
     ./uninstall-pkg.sh

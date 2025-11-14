@@ -1,6 +1,6 @@
 # Maintainer: Rakan Bakir <rakanbakir@github.com>
 pkgname=samsungctl
-pkgver=0.7.2
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="Remote control Samsung televisions via TCP/IP connection"
 arch=('any')

@@ -18,7 +18,7 @@ find . -name "venv" -type d -exec rm -rf {} + 2>/dev/null || true
 find . -name "pkg" -type d -exec rm -rf {} + 2>/dev/null || true
 find . -name "*.pkg.tar.zst" -delete 2>/dev/null || true
 cd ..
-tar -czf "$PROJECT_DIR/samsungctl-0.7.2.tar.gz" samsungctl-build
+tar -czf "$PROJECT_DIR/samsungctl-0.8.0.tar.gz" samsungctl-build
 rm -rf /tmp/samsungctl-build
 
 # Move back to package directory
@@ -29,5 +29,5 @@ echo "Building package..."
 makepkg -f
 
 echo "Package built successfully!"
-echo "You can install it with: sudo pacman -U samsungctl-0.7.2-1-any.pkg.tar.zst"
-echo "Or test it first: pacman -Qip samsungctl-0.7.2-1-any.pkg.tar.zst"
+echo "You can install it with: sudo pacman -U samsungctl-0.8.0-1-any.pkg.tar.zst"
+echo "Or test it first: pacman -Qip samsungctl-0.8.0-1-any.pkg.tar.zst"

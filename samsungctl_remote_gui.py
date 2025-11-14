@@ -56,16 +56,12 @@ class ModernSamsungRemote:
         self.config = self.load_config()
         if self.config is None:
             # Config loading failed, but continue with default config
-            self.config = {
-                "name": "samsungctl",
-                "host": "",
-                "method": "websocket",
-                "port": 8001,
-                "timeout": 5,
-                "tooltips_enabled": True
-            }
+            self.config = self._get_default_config()
             logging.warning("Config loading failed, using default configuration")
 
+        # Get current profile settings for backward compatibility
+        current_profile_config = self.get_current_profile_config()
+        
         # Initialize connection status
         self.connection_status = "Disconnected"
         
@@ -90,11 +86,10 @@ class ModernSamsungRemote:
         self.command_history = []
         self.max_history = 10
 
-        # Load app sequences from config
-        self.app_sequences = self.config.get('app_sequences', {}) if self.config else {}
-
-        # Load discovery subnets from config
-        self.discovery_subnets = self.config.get('discovery_subnets', []) if self.config else []
+        # Load global settings
+        global_settings = self.config.get('global_settings', {})
+        self.app_sequences = global_settings.get('app_sequences', {})
+        self.discovery_subnets = global_settings.get('discovery_subnets', [])
 
         # Load key reference data for tooltips
         self.key_reference = self._load_key_reference()
@@ -114,7 +109,8 @@ class ModernSamsungRemote:
         self.configure_scrolling()
 
         # Auto-connect if IP is configured
-        if self.config and self.config.get("host"):
+        current_profile_config = self.get_current_profile_config()
+        if current_profile_config and current_profile_config.get("host"):
             logging.info("IP address configured, attempting automatic connection...")
             self.connect_to_tv(timeout_seconds=10, show_error_dialog=False)
 
@@ -304,7 +300,8 @@ class ModernSamsungRemote:
         """Update the connection status display in the header"""
         try:
             if hasattr(self, 'status_label') and self.status_label.winfo_exists():
-                status_text = "Disconnected - No Config" if not self.config.get("host") else ("Connected" if self.connection_status == "Connected" else f"{self.connection_status}")
+                current_profile_config = self.get_current_profile_config()
+                status_text = "Disconnected - No Config" if not current_profile_config.get("host") else ("Connected" if self.connection_status == "Connected" else f"{self.connection_status}")
                 status_color = '#ff4444' if self.connection_status != "Connected" else '#00ff00'
                 self.status_label.config(text=f"● {status_text}", fg=status_color)
                 logging.info(f"Connection status updated to: {status_text}")
@@ -312,33 +309,51 @@ class ModernSamsungRemote:
             logging.error(f"Failed to update connection status display: {e}")
 
     def connect_to_tv(self, timeout_seconds=10, show_error_dialog=True):
-        """Establish connection to TV with timeout"""
-        logging.info(f"Attempting to connect to TV at {self.config.get('host', 'unknown')} using {self.config.get('method', 'unknown')} method")
-        
+        """Establish connection to TV with timeout and enhanced error handling"""
+        current_profile_config = self.get_current_profile_config()
+        host = current_profile_config.get('host', 'unknown')
+        method = current_profile_config.get('method', 'unknown')
+
+        logging.info(f"Attempting to connect to TV at {host} using {method} method")
+
+        # First, do a basic network connectivity check
+        if not self._test_network_connectivity(host, current_profile_config.get('port', 8001)):
+            error_msg = f"Network connectivity test failed for {host}. Check if TV is powered on and on the same network."
+            logging.error(f"Failed to connect to TV: {error_msg}")
+            self.connection_status = "Disconnected"
+            self.update_connection_status()
+            if show_error_dialog:
+                try:
+                    if self.root and self.root.winfo_exists():
+                        messagebox.showerror("Connection Error", error_msg)
+                except Exception as dialog_error:
+                    logging.error(f"Failed to show connection error dialog: {dialog_error}")
+            return
+
         connection_result = {'success': False, 'remote': None, 'error': None}
-        
+
         def attempt_connection():
             try:
-                remote = samsungctl.Remote(self.config).__enter__()
+                remote = samsungctl.Remote(current_profile_config).__enter__()
                 connection_result['success'] = True
                 connection_result['remote'] = remote
             except Exception as e:
                 connection_result['error'] = str(e)
-        
+
         # Start connection attempt in a separate thread
         connection_thread = threading.Thread(target=attempt_connection, daemon=True)
         connection_thread.start()
-        
+
         # Wait for connection with timeout
         connection_thread.join(timeout=timeout_seconds)
-        
+
         if connection_thread.is_alive():
             # Connection attempt timed out
             logging.warning(f"TV connection attempt timed out after {timeout_seconds} seconds")
             self.connection_status = "Disconnected"
             self.update_connection_status()
             return
-        
+
         if connection_result['success']:
             self.remote = connection_result['remote']
             self.connection_status = "Connected"
@@ -348,19 +363,176 @@ class ModernSamsungRemote:
             # Start connection monitoring
             self.start_connection_monitor()
         else:
-            self.connection_status = "Disconnected"
             error_msg = connection_result['error'] or "Unknown connection error"
             logging.error(f"Failed to connect to TV: {error_msg}")
+
+            # Try automatic method fallback if the connection method might be the issue
+            if self._should_try_method_fallback(error_msg, method):
+                logging.info(f"Attempting automatic method fallback from {method} to {'legacy' if method == 'websocket' else 'websocket'}")
+                
+                # Switch method and try again
+                alt_method = 'legacy' if method == 'websocket' else 'websocket'
+                alt_port = 55000 if alt_method == 'legacy' else 8001
+                
+                # Update profile config temporarily for fallback attempt
+                temp_config = current_profile_config.copy()
+                temp_config['method'] = alt_method
+                temp_config['port'] = alt_port
+                
+                # Try connection with alternative method
+                alt_connection_result = {'success': False, 'remote': None, 'error': None}
+                
+                def attempt_alt_connection():
+                    try:
+                        alt_remote = samsungctl.Remote(temp_config).__enter__()
+                        alt_connection_result['success'] = True
+                        alt_connection_result['remote'] = alt_remote
+                    except Exception as e:
+                        alt_connection_result['error'] = str(e)
+                
+                # Start alternative connection attempt
+                alt_connection_thread = threading.Thread(target=attempt_alt_connection, daemon=True)
+                alt_connection_thread.start()
+                alt_connection_thread.join(timeout=timeout_seconds)
+                
+                if alt_connection_thread.is_alive():
+                    logging.warning(f"Alternative method connection attempt timed out after {timeout_seconds} seconds")
+                elif alt_connection_result['success']:
+                    # Success with alternative method!
+                    self.remote = alt_connection_result['remote']
+                    self.connection_status = "Connected"
+                    logging.info(f"Successfully connected using alternative method: {alt_method}")
+                    
+                    # Update the profile to use the working method
+                    current_profile_name = self.config.get('current_profile', 'Default TV')
+                    if current_profile_name in self.config.get('profiles', {}):
+                        self.config['profiles'][current_profile_name]['method'] = alt_method
+                        self.config['profiles'][current_profile_name]['port'] = alt_port
+                        self.save_config()
+                        logging.info(f"Updated profile '{current_profile_name}' to use method '{alt_method}'")
+                    
+                    # Update the UI status
+                    self.update_connection_status()
+                    # Start connection monitoring
+                    self.start_connection_monitor()
+                    
+                    # Show success message
+                    if show_error_dialog:
+                        try:
+                            if self.root and self.root.winfo_exists():
+                                messagebox.showinfo("Connection Success", 
+                                                  f"Connected successfully using {alt_method} method.\nProfile updated to use this method automatically.")
+                        except Exception as dialog_error:
+                            logging.error(f"Failed to show fallback success dialog: {dialog_error}")
+                    
+                    return
+                
+                # If alternative method also failed, show combined error
+                alt_error_msg = alt_connection_result['error'] or "Unknown error"
+                logging.error(f"Alternative method ({alt_method}) also failed: {alt_error_msg}")
+                
+                # Combine error messages for user
+                combined_error = f"Both connection methods failed:\n\n{method.upper()}: {error_msg}\n{alt_method.upper()}: {alt_error_msg}\n\nTry checking your TV settings and network connection."
+                user_friendly_error = self._get_user_friendly_error(combined_error, host, method)
+            else:
+                # No fallback attempted, use original error
+                user_friendly_error = self._get_user_friendly_error(error_msg, host, method)
+
+            self.connection_status = "Disconnected"
             # Update the UI status
             self.update_connection_status()
             # Only show error dialog if requested and the application is still alive
             if show_error_dialog:
                 try:
                     if self.root and self.root.winfo_exists():
-                        messagebox.showerror("Connection Error", f"Failed to connect to TV: {error_msg}")
+                        messagebox.showerror("Connection Error", user_friendly_error)
                 except Exception as dialog_error:
                     logging.error(f"Failed to show connection error dialog: {dialog_error}")
                     # Application might be shutting down, just log the error
+
+    def _test_network_connectivity(self, host, port):
+        """Test basic network connectivity to the TV"""
+        try:
+            logging.debug(f"Testing network connectivity to {host}:{port}")
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)  # 2 second timeout for connectivity test
+            result = sock.connect_ex((host, port))
+            sock.close()
+
+            if result == 0:
+                logging.debug(f"Network connectivity test passed for {host}:{port}")
+                return True
+            else:
+                logging.warning(f"Network connectivity test failed for {host}:{port} - port not accessible")
+                return False
+        except Exception as e:
+            logging.warning(f"Network connectivity test error for {host}:{port}: {e}")
+            return False
+
+    def _should_try_method_fallback(self, error_msg, current_method):
+        """Determine if we should try automatic method fallback based on the error"""
+        error_lower = error_msg.lower()
+
+        # Try fallback for method-specific errors
+        if "method" in error_lower:
+            return True
+
+        # Try fallback for connection refused (might be wrong port)
+        if "connection refused" in error_lower:
+            return True
+
+        # Try fallback for websocket-specific errors
+        if current_method == "websocket" and any(keyword in error_lower for keyword in [
+            "websocket", "web socket", "ws://", "upgrade", "handshake"
+        ]):
+            return True
+
+        # Try fallback for legacy-specific errors
+        if current_method == "legacy" and any(keyword in error_lower for keyword in [
+            "legacy", "55000", "xml", "soap"
+        ]):
+            return True
+
+        # Don't try fallback for network-level errors
+        if any(keyword in error_lower for keyword in [
+            "network is unreachable", "no route to host", "connection timed out",
+            "name resolution", "dns", "network connectivity test failed"
+        ]):
+            return False
+
+        # Default: try fallback for most connection errors
+        return True
+
+    def _get_user_friendly_error(self, error_msg, host, method):
+        """Convert technical error messages to user-friendly messages"""
+        error_lower = error_msg.lower()
+
+        if "connection refused" in error_lower:
+            return f"Connection refused by TV at {host}. Make sure the TV is powered on and Samsung Remote Control is enabled in TV settings."
+
+        elif "connection timed out" in error_lower or "timeout" in error_lower:
+            return f"Connection timed out connecting to TV at {host}. Check your network connection and TV IP address."
+
+        elif "connection reset" in error_lower or "connection lost" in error_lower:
+            return f"Connection lost to TV at {host}. The TV may have gone to sleep or lost network connectivity."
+
+        elif "no route to host" in error_lower:
+            return f"No route to TV at {host}. Check that the TV is on the same network and the IP address is correct."
+
+        elif "network is unreachable" in error_lower:
+            return f"Network unreachable for TV at {host}. Check your network connection."
+
+        elif "permission denied" in error_lower:
+            return f"Permission denied connecting to TV at {host}. Make sure Samsung Remote Control is enabled on the TV."
+
+        elif "method" in error_lower and method == "websocket":
+            return f"WebSocket connection failed to TV at {host}. Try switching to legacy method in profile settings, or check TV firmware version."
+
+        elif "method" in error_lower and method == "legacy":
+            return f"Legacy connection failed to TV at {host}. Try switching to websocket method in profile settings."
+
+        else:
+            return f"Failed to connect to TV at {host}: {error_msg}\n\nTroubleshooting tips:\n• Ensure TV is powered on\n• Enable Samsung Remote Control in TV settings\n• Check that TV and computer are on the same network\n• Try using TV discovery to find the correct IP address"
 
     def start_connection_monitor(self):
         """Start monitoring connection health"""
@@ -388,7 +560,7 @@ class ModernSamsungRemote:
         logging.info("Connection monitoring started")
 
     def create_header(self):
-        """Create header with logo and title"""
+        """Create header with logo, title, profile selector and status"""
         header_frame = ttk.Frame(self.scrollable_frame, style='Header.TFrame', height=80)
         header_frame.pack(fill=tk.X, padx=0, pady=0)
         header_frame.pack_propagate(False)
@@ -398,7 +570,7 @@ class ModernSamsungRemote:
             logo_label = tk.Label(header_frame, image=self.logo_image, bg='#0078d4')
             logo_label.pack(side=tk.LEFT, padx=15, pady=10)
 
-        # Title and status
+        # Title and profile selector
         title_frame = ttk.Frame(header_frame, style='Header.TFrame')
         title_frame.pack(side=tk.LEFT, fill=tk.Y, expand=True, padx=10)
 
@@ -410,10 +582,378 @@ class ModernSamsungRemote:
                                  font=('Segoe UI', 10), fg='#e6f3ff', bg='#0078d4')
         subtitle_label.pack(anchor=tk.W)
 
+        # Profile selector
+        profile_frame = ttk.Frame(title_frame, style='Header.TFrame')
+        profile_frame.pack(anchor=tk.W, pady=(5, 0))
+
+        profile_label = tk.Label(profile_frame, text="Profile:", font=('Segoe UI', 9),
+                                fg='#e6f3ff', bg='#0078d4')
+        profile_label.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.profile_var = tk.StringVar(value=self.config.get('current_profile', 'Default TV'))
+        self.profile_combobox = ttk.Combobox(profile_frame, textvariable=self.profile_var,
+                                           font=('Segoe UI', 9), width=20, state='readonly')
+        self.profile_combobox.pack(side=tk.LEFT, padx=(0, 5))
+        self._update_profile_selector()
+
+        # Profile management buttons
+        profile_btn_frame = ttk.Frame(profile_frame, style='Header.TFrame')
+        profile_btn_frame.pack(side=tk.LEFT)
+
+        add_profile_btn = tk.Button(profile_btn_frame, text="+", command=self.show_profile_manager,
+                                   font=('Segoe UI', 8), bg='#28a745', fg='white',
+                                   width=2, height=1, relief='raised', bd=1)
+        add_profile_btn.pack(side=tk.LEFT, padx=1)
+        self.add_button_hover(add_profile_btn, '#218838', '#28a745')
+
+        # Bind profile change event
+        self.profile_combobox.bind('<<ComboboxSelected>>', self._on_profile_changed)
+
         # Connection status
         self.status_label = tk.Label(header_frame, text="● Disconnected",
                                    font=('Segoe UI', 8), fg='#ff4444', bg='#0078d4')
         self.status_label.pack(side=tk.RIGHT, padx=15, anchor=tk.S)
+
+    def _update_profile_selector(self):
+        """Update the profile selector combobox with current profiles"""
+        if hasattr(self, 'profile_combobox'):
+            profiles = list(self.config.get('profiles', {}).keys())
+            self.profile_combobox['values'] = profiles
+            current_profile = self.config.get('current_profile', 'Default TV')
+            if current_profile in profiles:
+                self.profile_var.set(current_profile)
+            else:
+                # Fallback to first available profile
+                if profiles:
+                    self.profile_var.set(profiles[0])
+                    self.config['current_profile'] = profiles[0]
+
+    def _on_profile_changed(self, event=None):
+        """Handle profile selection change"""
+        selected_profile = self.profile_var.get()
+        if selected_profile != self.config.get('current_profile'):
+            self.switch_profile(selected_profile)
+
+    def show_profile_manager(self):
+        """Show profile management dialog"""
+        profile_window = tk.Toplevel(self.root)
+        profile_window.title("TV Profile Manager")
+        profile_window.geometry("500x400")
+        profile_window.configure(bg=self.bg_color)
+        profile_window.resizable(True, True)
+
+        # Title
+        title_label = tk.Label(profile_window, text="TV Profile Manager",
+                              font=('Segoe UI', 16, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+
+        # Profile list
+        list_frame = ttk.Frame(profile_window, style='Card.TFrame')
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
+
+        profile_listbox = tk.Listbox(list_frame, font=('Segoe UI', 10),
+                                    bg=self.button_bg, fg=self.text_color,
+                                    selectbackground=self.accent_color, height=8)
+        profile_listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # Populate profile list
+        profiles = list(self.config.get('profiles', {}).keys())
+        for profile in profiles:
+            profile_listbox.insert(tk.END, profile)
+
+        # Select current profile
+        current_profile = self.config.get('current_profile', '')
+        if current_profile in profiles:
+            profile_listbox.selection_set(profiles.index(current_profile))
+
+        # Button frame
+        btn_frame = ttk.Frame(profile_window, style='Card.TFrame')
+        btn_frame.pack(fill=tk.X, padx=20, pady=(0, 20))
+
+        def add_profile():
+            self.show_add_profile_dialog(profile_window, profile_listbox)
+
+        def edit_profile():
+            selection = profile_listbox.curselection()
+            if selection:
+                profile_name = profile_listbox.get(selection[0])
+                self.show_edit_profile_dialog(profile_window, profile_name, profile_listbox)
+
+        def delete_profile():
+            selection = profile_listbox.curselection()
+            if selection:
+                profile_name = profile_listbox.get(selection[0])
+                if len(profiles) <= 1:
+                    messagebox.showerror("Error", "Cannot delete the last remaining profile")
+                    return
+
+                if messagebox.askyesno("Delete Profile", f"Are you sure you want to delete the profile '{profile_name}'?"):
+                    if self.delete_profile(profile_name):
+                        profile_listbox.delete(selection[0])
+                        messagebox.showinfo("Success", f"Profile '{profile_name}' deleted")
+
+        def set_as_current():
+            selection = profile_listbox.curselection()
+            if selection:
+                profile_name = profile_listbox.get(selection[0])
+                if self.switch_profile(profile_name):
+                    messagebox.showinfo("Success", f"Switched to profile '{profile_name}'")
+
+        # Buttons
+        add_btn = tk.Button(btn_frame, text="Add Profile", command=add_profile,
+                           font=('Segoe UI', 10), bg='#28a745', fg='white',
+                           relief='raised', bd=1, padx=10)
+        add_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(add_btn, '#218838', '#28a745')
+
+        edit_btn = tk.Button(btn_frame, text="Edit", command=edit_profile,
+                            font=('Segoe UI', 10), bg=self.accent_color, fg='white',
+                            relief='raised', bd=1, padx=10)
+        edit_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(edit_btn, '#0099ff', self.accent_color)
+
+        delete_btn = tk.Button(btn_frame, text="Delete", command=delete_profile,
+                              font=('Segoe UI', 10), bg='#dc3545', fg='white',
+                              relief='raised', bd=1, padx=10)
+        delete_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(delete_btn, '#c82333', '#dc3545')
+
+        set_current_btn = tk.Button(btn_frame, text="Set as Current", command=set_as_current,
+                                   font=('Segoe UI', 10), bg='#ffc107', fg='black',
+                                   relief='raised', bd=1, padx=10)
+        set_current_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(set_current_btn, '#e0a800', '#ffc107')
+
+        close_btn = tk.Button(btn_frame, text="Close", command=profile_window.destroy,
+                             font=('Segoe UI', 10), bg=self.button_bg, fg=self.text_color,
+                             relief='raised', bd=1, padx=10)
+        close_btn.pack(side=tk.RIGHT, padx=5)
+        self.add_button_hover(close_btn, self.button_hover, self.button_bg)
+
+    def show_add_profile_dialog(self, parent_window, profile_listbox):
+        """Show dialog to add a new profile"""
+        dialog = tk.Toplevel(parent_window)
+        dialog.title("Add TV Profile")
+        dialog.geometry("400x300")
+        dialog.configure(bg=self.bg_color)
+        dialog.resizable(False, False)
+        dialog.transient(parent_window)
+        dialog.grab_set()
+
+        # Title
+        title_label = tk.Label(dialog, text="Add New TV Profile",
+                              font=('Segoe UI', 14, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+
+        # Form frame
+        form_frame = ttk.Frame(dialog, style='Card.TFrame')
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+
+        # Profile name
+        name_label = tk.Label(form_frame, text="Profile Name:", font=('Segoe UI', 10),
+                             fg=self.text_color, bg=self.bg_color)
+        name_label.pack(anchor=tk.W, pady=(10, 5))
+
+        name_entry = tk.Entry(form_frame, font=('Segoe UI', 10),
+                             bg=self.button_bg, fg=self.text_color, insertbackground=self.text_color)
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # TV IP
+        ip_label = tk.Label(form_frame, text="TV IP Address:", font=('Segoe UI', 10),
+                           fg=self.text_color, bg=self.bg_color)
+        ip_label.pack(anchor=tk.W, pady=(0, 5))
+
+        ip_entry = tk.Entry(form_frame, font=('Segoe UI', 10),
+                           bg=self.button_bg, fg=self.text_color, insertbackground=self.text_color)
+        ip_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # Connection method
+        method_label = tk.Label(form_frame, text="Connection Method:", font=('Segoe UI', 10),
+                               fg=self.text_color, bg=self.bg_color)
+        method_label.pack(anchor=tk.W, pady=(0, 5))
+
+        method_var = tk.StringVar(value='websocket')
+        method_combo = ttk.Combobox(form_frame, textvariable=method_var,
+                                   values=['websocket', 'legacy'], state='readonly',
+                                   font=('Segoe UI', 10))
+        method_combo.pack(fill=tk.X, pady=(0, 20))
+
+        # Buttons
+        btn_frame = ttk.Frame(form_frame, style='Card.TFrame')
+        btn_frame.pack(fill=tk.X)
+
+        def save_profile():
+            profile_name = name_entry.get().strip()
+            tv_ip = ip_entry.get().strip()
+            method = method_var.get()
+
+            if not profile_name:
+                messagebox.showerror("Error", "Profile name is required")
+                return
+
+            if not tv_ip:
+                messagebox.showerror("Error", "TV IP address is required")
+                return
+
+            # Validate IP
+            try:
+                import ipaddress
+                ipaddress.ip_address(tv_ip)
+            except ValueError:
+                messagebox.showerror("Error", "Invalid IP address format")
+                return
+
+            # Check if profile name already exists
+            if profile_name in self.config.get('profiles', {}):
+                messagebox.showerror("Error", f"Profile '{profile_name}' already exists")
+                return
+
+            # Create profile config
+            profile_config = {
+                'name': profile_name,
+                'host': tv_ip,
+                'port': 8001 if method == 'websocket' else 55000,
+                'method': method,
+                'description': 'PC',
+                'id': '',
+                'timeout': None if method == 'websocket' else 5
+            }
+            
+            # Add websocket-specific parameters if using websocket method
+            if method == 'websocket':
+                profile_config['token'] = ''
+                profile_config['paired'] = False
+
+            if self.add_profile(profile_name, profile_config):
+                profile_listbox.insert(tk.END, profile_name)
+                messagebox.showinfo("Success", f"Profile '{profile_name}' added successfully")
+                dialog.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to add profile")
+
+        def cancel():
+            dialog.destroy()
+
+        save_btn = tk.Button(btn_frame, text="Save", command=save_profile,
+                            font=('Segoe UI', 10), bg='#28a745', fg='white',
+                            relief='raised', bd=1, padx=15)
+        save_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(save_btn, '#218838', '#28a745')
+
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=cancel,
+                              font=('Segoe UI', 10), bg=self.button_bg, fg=self.text_color,
+                              relief='raised', bd=1, padx=15)
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        self.add_button_hover(cancel_btn, self.button_hover, self.button_bg)
+
+        # Center dialog
+        dialog.geometry("400x300")
+        dialog.update_idletasks()
+        x = parent_window.winfo_x() + (parent_window.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = parent_window.winfo_y() + (parent_window.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+    def show_edit_profile_dialog(self, parent_window, profile_name, profile_listbox):
+        """Show dialog to edit an existing profile"""
+        dialog = tk.Toplevel(parent_window)
+        dialog.title(f"Edit TV Profile - {profile_name}")
+        dialog.geometry("400x300")
+        dialog.configure(bg=self.bg_color)
+        dialog.resizable(False, False)
+        dialog.transient(parent_window)
+        dialog.grab_set()
+
+        # Get current profile config
+        profile_config = self.config.get('profiles', {}).get(profile_name, {})
+
+        # Title
+        title_label = tk.Label(dialog, text=f"Edit Profile: {profile_name}",
+                              font=('Segoe UI', 14, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+
+        # Form frame
+        form_frame = ttk.Frame(dialog, style='Card.TFrame')
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+
+        # Profile name (read-only for edit)
+        name_label = tk.Label(form_frame, text=f"Profile Name: {profile_name}", font=('Segoe UI', 10),
+                             fg=self.text_color, bg=self.bg_color)
+        name_label.pack(anchor=tk.W, pady=(10, 5))
+
+        # TV IP
+        ip_label = tk.Label(form_frame, text="TV IP Address:", font=('Segoe UI', 10),
+                           fg=self.text_color, bg=self.bg_color)
+        ip_label.pack(anchor=tk.W, pady=(0, 5))
+
+        ip_entry = tk.Entry(form_frame, font=('Segoe UI', 10),
+                           bg=self.button_bg, fg=self.text_color, insertbackground=self.text_color)
+        ip_entry.insert(0, profile_config.get('host', ''))
+        ip_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # Connection method
+        method_label = tk.Label(form_frame, text="Connection Method:", font=('Segoe UI', 10),
+                               fg=self.text_color, bg=self.bg_color)
+        method_label.pack(anchor=tk.W, pady=(0, 5))
+
+        method_var = tk.StringVar(value=profile_config.get('method', 'websocket'))
+        method_combo = ttk.Combobox(form_frame, textvariable=method_var,
+                                   values=['websocket', 'legacy'], state='readonly',
+                                   font=('Segoe UI', 10))
+        method_combo.pack(fill=tk.X, pady=(0, 20))
+
+        # Buttons
+        btn_frame = ttk.Frame(form_frame, style='Card.TFrame')
+        btn_frame.pack(fill=tk.X)
+
+        def save_profile():
+            tv_ip = ip_entry.get().strip()
+            method = method_var.get()
+
+            if not tv_ip:
+                messagebox.showerror("Error", "TV IP address is required")
+                return
+
+            # Validate IP
+            try:
+                import ipaddress
+                ipaddress.ip_address(tv_ip)
+            except ValueError:
+                messagebox.showerror("Error", "Invalid IP address format")
+                return
+
+            # Update profile config
+            updated_config = profile_config.copy()
+            updated_config['host'] = tv_ip
+            updated_config['port'] = 8001 if method == 'websocket' else 55000
+            updated_config['method'] = method
+
+            if self.update_profile(profile_name, updated_config):
+                messagebox.showinfo("Success", f"Profile '{profile_name}' updated successfully")
+                dialog.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to update profile")
+
+        def cancel():
+            dialog.destroy()
+
+        save_btn = tk.Button(btn_frame, text="Save", command=save_profile,
+                            font=('Segoe UI', 10), bg='#28a745', fg='white',
+                            relief='raised', bd=1, padx=15)
+        save_btn.pack(side=tk.LEFT, padx=5)
+        self.add_button_hover(save_btn, '#218838', '#28a745')
+
+        cancel_btn = tk.Button(btn_frame, text="Cancel", command=cancel,
+                              font=('Segoe UI', 10), bg=self.button_bg, fg=self.text_color,
+                              relief='raised', bd=1, padx=15)
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        self.add_button_hover(cancel_btn, self.button_hover, self.button_bg)
+
+        # Center dialog
+        dialog.geometry("400x300")
+        dialog.update_idletasks()
+        x = parent_window.winfo_x() + (parent_window.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = parent_window.winfo_y() + (parent_window.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
 
     def create_main_remote(self):
         """Create the main remote control interface"""
@@ -431,7 +971,7 @@ class ModernSamsungRemote:
         self.add_button_hover(power_btn, '#ff6666', '#ff4444')
         
         # Add tooltip for power button
-        if self.config.get("tooltips_enabled", True) and "KEY_POWER" in self.key_reference:
+        if self._are_tooltips_enabled() and "KEY_POWER" in self.key_reference:
             ref = self.key_reference["KEY_POWER"]
             tooltip_text = f"{ref['code']}\n{ref['description']}"
             self.ToolTip(power_btn, tooltip_text)
@@ -485,7 +1025,7 @@ class ModernSamsungRemote:
         self.add_button_hover(ok_btn, '#0099ff', self.accent_color)
         
         # Add tooltip for OK button
-        if self.config.get("tooltips_enabled", True) and "KEY_ENTER" in self.key_reference:
+        if self._are_tooltips_enabled() and "KEY_ENTER" in self.key_reference:
             ref = self.key_reference["KEY_ENTER"]
             tooltip_text = f"{ref['code']}\n{ref['description']}"
             self.ToolTip(ok_btn, tooltip_text)
@@ -950,7 +1490,7 @@ class ModernSamsungRemote:
 
         self.ip_entry = tk.Entry(footer_frame, width=15, font=('Segoe UI', 9),
                                 bg=self.button_bg, fg=self.text_color, insertbackground=self.text_color)
-        self.ip_entry.insert(0, self.config.get("host", ""))
+        self.ip_entry.insert(0, self.get_current_profile_config().get("host", ""))
         self.ip_entry.pack(side=tk.LEFT, padx=(0, 5))
 
         update_btn = tk.Button(footer_frame, text="Update", command=self.update_ip,
@@ -960,7 +1500,8 @@ class ModernSamsungRemote:
         self.add_button_hover(update_btn, '#0099ff', self.accent_color)
 
         # Tooltips toggle checkbox
-        self.tooltips_var = tk.BooleanVar(value=self.config.get("tooltips_enabled", True))
+        global_settings = self.config.get('global_settings', {})
+        self.tooltips_var = tk.BooleanVar(value=global_settings.get("tooltips_enabled", True))
         tooltips_check = tk.Checkbutton(footer_frame, text="Show Tooltips", variable=self.tooltips_var,
                                        command=self.toggle_tooltips, font=('Segoe UI', 9),
                                        bg=self.bg_color, fg=self.text_color, selectcolor=self.button_bg,
@@ -974,6 +1515,155 @@ class ModernSamsungRemote:
         discover_btn.pack(side=tk.LEFT)
         self.add_button_hover(discover_btn, '#218838', '#28a745')
 
+        # Connection test button
+        test_btn = tk.Button(footer_frame, text="🔗 Test Connection", command=self.test_connection,
+                            font=('Segoe UI', 9), bg='#17a2b8', fg='white',
+                            relief='raised', bd=1, padx=10)
+        test_btn.pack(side=tk.LEFT, padx=(5, 0))
+        self.add_button_hover(test_btn, '#138496', '#17a2b8')
+
+    def test_connection(self):
+        """Test connection to TV and provide detailed diagnostics"""
+        current_profile_config = self.get_current_profile_config()
+        host = current_profile_config.get('host', '')
+        method = current_profile_config.get('method', 'websocket')
+        port = current_profile_config.get('port', 8001 if method == 'websocket' else 55000)
+
+        if not host:
+            messagebox.showerror("Connection Test", "No TV IP address configured. Please set the TV IP address first.")
+            return
+
+        # Create test dialog
+        test_window = tk.Toplevel(self.root)
+        test_window.title("Connection Test")
+        test_window.geometry("500x400")
+        test_window.configure(bg=self.bg_color)
+        test_window.resizable(False, False)
+        test_window.transient(self.root)
+        test_window.grab_set()
+
+        # Title
+        title_label = tk.Label(test_window, text="TV Connection Diagnostics",
+                              font=('Segoe UI', 14, 'bold'), fg=self.text_color, bg=self.bg_color)
+        title_label.pack(pady=10)
+
+        # Results frame
+        results_frame = ttk.Frame(test_window, style='Card.TFrame')
+        results_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 20))
+
+        # Results text area
+        results_text = tk.Text(results_frame, font=('Segoe UI', 9), bg=self.button_bg,
+                              fg=self.text_color, wrap=tk.WORD, padx=10, pady=10)
+        scrollbar = tk.Scrollbar(results_frame, command=results_text.yview)
+        results_text.configure(yscrollcommand=scrollbar.set)
+
+        results_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Status label
+        status_label = tk.Label(test_window, text="Running diagnostics...",
+                               font=('Segoe UI', 10), fg=self.secondary_text, bg=self.bg_color)
+        status_label.pack(pady=(0, 10))
+
+        def run_diagnostics():
+            try:
+                results_text.delete(1.0, tk.END)
+                results_text.insert(tk.END, f"Testing connection to TV: {host}\n")
+                results_text.insert(tk.END, f"Connection method: {method}\n")
+                results_text.insert(tk.END, f"Port: {port}\n\n")
+                test_window.update()
+
+                # Test 1: Basic network connectivity
+                status_label.config(text="Testing network connectivity...")
+                test_window.update()
+
+                results_text.insert(tk.END, "1. Network Connectivity Test:\n")
+                network_ok = self._test_network_connectivity(host, port)
+                if network_ok:
+                    results_text.insert(tk.END, "   ✓ Port is accessible\n", "success")
+                else:
+                    results_text.insert(tk.END, "   ✗ Cannot reach TV port\n", "error")
+                    results_text.insert(tk.END, "   Possible issues:\n")
+                    results_text.insert(tk.END, "   • TV is powered off\n")
+                    results_text.insert(tk.END, "   • TV is on a different network\n")
+                    results_text.insert(tk.END, "   • Firewall blocking connection\n")
+                    results_text.insert(tk.END, "   • Wrong IP address or port\n\n")
+
+                # Test 2: Ping test
+                status_label.config(text="Testing ping...")
+                test_window.update()
+
+                results_text.insert(tk.END, "2. Ping Test:\n")
+                try:
+                    import subprocess
+                    ping_result = subprocess.run(['ping', '-c', '2', '-W', '2', host],
+                                               capture_output=True, text=True, timeout=5)
+                    if ping_result.returncode == 0:
+                        results_text.insert(tk.END, "   ✓ TV responds to ping\n", "success")
+                    else:
+                        results_text.insert(tk.END, "   ✗ TV does not respond to ping\n", "warning")
+                        results_text.insert(tk.END, "   This may be normal if TV blocks ICMP\n")
+                except Exception as e:
+                    results_text.insert(tk.END, f"   ⚠ Ping test failed: {e}\n", "warning")
+
+                # Test 3: Samsung TV connection test
+                status_label.config(text="Testing Samsung TV connection...")
+                test_window.update()
+
+                results_text.insert(tk.END, "\n3. Samsung TV Connection Test:\n")
+                try:
+                    # Try to establish connection with short timeout
+                    remote = samsungctl.Remote(current_profile_config).__enter__()
+                    results_text.insert(tk.END, "   ✓ Successfully connected to Samsung TV!\n", "success")
+                    remote.__exit__(None, None, None)  # Clean up
+                except Exception as e:
+                    error_msg = str(e)
+                    results_text.insert(tk.END, f"   ✗ Connection failed: {error_msg}\n", "error")
+
+                    # Provide specific troubleshooting advice
+                    results_text.insert(tk.END, "\n   Troubleshooting suggestions:\n")
+                    if "connection refused" in error_msg.lower():
+                        results_text.insert(tk.END, "   • Enable 'Samsung Remote Control' in TV settings\n")
+                        results_text.insert(tk.END, "   • Make sure TV is powered on\n")
+                    elif "timeout" in error_msg.lower():
+                        results_text.insert(tk.END, "   • Check network connection\n")
+                        results_text.insert(tk.END, "   • Verify TV IP address is correct\n")
+                    elif "method" in error_msg.lower():
+                        results_text.insert(tk.END, f"   • Try switching connection method to {'legacy' if method == 'websocket' else 'websocket'}\n")
+                        results_text.insert(tk.END, "   • Check TV firmware compatibility\n")
+                    else:
+                        results_text.insert(tk.END, "   • Ensure TV and computer are on the same network\n")
+                        results_text.insert(tk.END, "   • Try power cycling the TV\n")
+                        results_text.insert(tk.END, "   • Check firewall settings\n")
+
+                results_text.insert(tk.END, "\n4. Profile Information:\n")
+                results_text.insert(tk.END, f"   Profile: {self.config.get('current_profile', 'Unknown')}\n")
+                results_text.insert(tk.END, f"   Host: {host}\n")
+                results_text.insert(tk.END, f"   Method: {method}\n")
+                results_text.insert(tk.END, f"   Port: {port}\n")
+
+                status_label.config(text="Diagnostics completed", fg='#28a745')
+
+            except Exception as e:
+                results_text.insert(tk.END, f"\nError during diagnostics: {e}\n", "error")
+                status_label.config(text="Diagnostics failed", fg='#ff4444')
+
+        # Configure text tags for coloring
+        results_text.tag_configure("success", foreground="#28a745")
+        results_text.tag_configure("error", foreground="#dc3545")
+        results_text.tag_configure("warning", foreground="#ffc107")
+
+        # Close button
+        close_btn = tk.Button(test_window, text="Close", command=test_window.destroy,
+                             font=('Segoe UI', 10), bg=self.button_bg, fg=self.text_color,
+                             relief='raised', bd=1, padx=20)
+        close_btn.pack(pady=(0, 10))
+        self.add_button_hover(close_btn, self.button_hover, self.button_bg)
+
+        # Run diagnostics in background thread
+        import threading
+        threading.Thread(target=run_diagnostics, daemon=True).start()
+
     def create_round_button(self, parent, text, key, size=12):
         """Create a round button with hover effects and tooltips"""
         btn = tk.Button(parent, text=text, command=lambda: self.send_key(key),
@@ -982,7 +1672,7 @@ class ModernSamsungRemote:
         self.add_button_hover(btn, self.button_hover, self.button_bg)
         
         # Add tooltip with key information if tooltips are enabled
-        if self.config.get("tooltips_enabled", True) and key in self.key_reference:
+        if self._are_tooltips_enabled() and key in self.key_reference:
             ref = self.key_reference[key]
             tooltip_text = f"{ref['code']}\n{ref['description']}"
             self.ToolTip(btn, tooltip_text)
@@ -1048,13 +1738,215 @@ class ModernSamsungRemote:
                 with open(config_path, 'r') as f:
                     config = json.load(f)
                 logging.info("Configuration loaded successfully")
+                
+                # Check if this is the old format (flat config) and migrate to profiles
+                if self._is_old_config_format(config):
+                    config = self._migrate_to_profiles_format(config)
+                    logging.info("Migrated old configuration format to profiles format")
+                
                 return config
             except Exception as e:
                 logging.error(f"Error loading config: {e}")
-                return None
+                return self._get_default_config()
         else:
             logging.warning("Config file not found. Using default settings.")
-            return None
+            return self._get_default_config()
+
+    def _is_old_config_format(self, config):
+        """Check if config is in the old flat format"""
+        # Old format has direct keys like 'host', 'port', etc. at root level
+        old_keys = ['host', 'port', 'method', 'name', 'description', 'id', 'timeout']
+        return any(key in config for key in old_keys) and 'profiles' not in config
+
+    def _migrate_to_profiles_format(self, old_config):
+        """Migrate old flat config to new profiles format"""
+        logging.info("Migrating configuration from old format to profiles format")
+        
+        # Create default profile from old config
+        default_profile = {
+            'name': old_config.get('name', 'Default TV'),
+            'host': old_config.get('host', ''),
+            'port': old_config.get('port', 8001),
+            'method': old_config.get('method', 'websocket'),
+            'description': old_config.get('description', 'PC'),
+            'id': old_config.get('id', ''),
+            'timeout': old_config.get('timeout', 5)
+        }
+        
+        # Create new config structure
+        new_config = {
+            'current_profile': 'Default TV',
+            'profiles': {
+                'Default TV': default_profile
+            },
+            'global_settings': {
+                'tooltips_enabled': old_config.get('tooltips_enabled', True),
+                'discovery_subnets': old_config.get('discovery_subnets', []),
+                'app_sequences': old_config.get('app_sequences', {})
+            }
+        }
+        
+        # Save the migrated config
+        self._save_config_immediately(new_config)
+        logging.info("Configuration migration completed")
+        
+        return new_config
+
+    def _get_default_config(self):
+        """Get default configuration with profiles structure"""
+        return {
+            'current_profile': 'Default TV',
+            'profiles': {
+                'Default TV': {
+                    'name': 'Default TV',
+                    'host': '',
+                    'port': 8001,
+                    'method': 'websocket',
+                    'description': 'PC',
+                    'id': '',
+                    'timeout': 5
+                }
+            },
+            'global_settings': {
+                'tooltips_enabled': True,
+                'discovery_subnets': [],
+                'app_sequences': {}
+            }
+        }
+
+    def _save_config_immediately(self, config):
+        """Save config immediately (used during migration)"""
+        config_path = os.path.join(os.getenv("HOME"), ".config", "samsungctl.conf")
+        try:
+            os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=4)
+            logging.info(f"Configuration saved to: {config_path}")
+        except Exception as e:
+            logging.error(f"Failed to save configuration: {e}")
+
+    def get_current_profile_config(self):
+        """Get the configuration for the currently selected profile"""
+        if not self.config or 'current_profile' not in self.config:
+            return self._get_default_config()['profiles']['Default TV']
+        
+        current_profile_name = self.config['current_profile']
+        if current_profile_name in self.config.get('profiles', {}):
+            return self.config['profiles'][current_profile_name]
+        else:
+            logging.warning(f"Current profile '{current_profile_name}' not found, using default")
+            return self._get_default_config()['profiles']['Default TV']
+
+    def switch_profile(self, profile_name):
+        """Switch to a different profile"""
+        if profile_name in self.config.get('profiles', {}):
+            self.config['current_profile'] = profile_name
+            self.save_config()
+            logging.info(f"Switched to profile: {profile_name}")
+            
+            # Update UI elements that depend on current profile
+            self._update_ui_for_current_profile()
+            
+            # Disconnect current connection and try to connect with new profile
+            if self.remote:
+                try:
+                    self.remote.__exit__(None, None, None)
+                    self.remote = None
+                    self.connection_status = "Disconnected"
+                    self.update_connection_status()
+                except Exception as e:
+                    logging.error(f"Error disconnecting from current TV: {e}")
+            
+            # Try to connect with new profile settings
+            profile_config = self.get_current_profile_config()
+            if profile_config.get('host'):
+                self.connect_to_tv()
+            
+            return True
+        else:
+            logging.error(f"Profile '{profile_name}' not found")
+            return False
+
+    def _update_ui_for_current_profile(self):
+        """Update UI elements when switching profiles"""
+        try:
+            profile_config = self.get_current_profile_config()
+            
+            # Update IP entry
+            if hasattr(self, 'ip_entry') and self.ip_entry.winfo_exists():
+                self.ip_entry.delete(0, tk.END)
+                self.ip_entry.insert(0, profile_config.get('host', ''))
+            
+            # Update profile selector if it exists
+            if hasattr(self, 'profile_var'):
+                self.profile_var.set(self.config.get('current_profile', 'Default TV'))
+            
+            logging.info("UI updated for current profile")
+        except Exception as e:
+            logging.error(f"Error updating UI for current profile: {e}")
+
+    def add_profile(self, profile_name, profile_config):
+        """Add a new profile"""
+        if 'profiles' not in self.config:
+            self.config['profiles'] = {}
+        
+        if profile_name in self.config['profiles']:
+            logging.warning(f"Profile '{profile_name}' already exists, overwriting")
+        
+        self.config['profiles'][profile_name] = profile_config
+        self.save_config()
+        logging.info(f"Added profile: {profile_name}")
+        
+        # Update profile selector if it exists
+        if hasattr(self, 'profile_combobox'):
+            self._update_profile_selector()
+        
+        return True
+
+    def delete_profile(self, profile_name):
+        """Delete a profile"""
+        if profile_name not in self.config.get('profiles', {}):
+            logging.error(f"Profile '{profile_name}' not found")
+            return False
+        
+        if len(self.config['profiles']) <= 1:
+            logging.error("Cannot delete the last remaining profile")
+            return False
+        
+        # If we're deleting the current profile, switch to another one
+        if self.config.get('current_profile') == profile_name:
+            remaining_profiles = [p for p in self.config['profiles'].keys() if p != profile_name]
+            self.config['current_profile'] = remaining_profiles[0]
+            logging.info(f"Switched to profile '{remaining_profiles[0]}' after deleting current profile")
+        
+        del self.config['profiles'][profile_name]
+        self.save_config()
+        logging.info(f"Deleted profile: {profile_name}")
+        
+        # Update profile selector
+        if hasattr(self, 'profile_combobox'):
+            self._update_profile_selector()
+        
+        # Update UI
+        self._update_ui_for_current_profile()
+        
+        return True
+
+    def update_profile(self, profile_name, new_config):
+        """Update an existing profile"""
+        if profile_name not in self.config.get('profiles', {}):
+            logging.error(f"Profile '{profile_name}' not found")
+            return False
+        
+        self.config['profiles'][profile_name] = new_config
+        self.save_config()
+        logging.info(f"Updated profile: {profile_name}")
+        
+        # If this is the current profile, update UI
+        if self.config.get('current_profile') == profile_name:
+            self._update_ui_for_current_profile()
+        
+        return True
 
     def _load_key_reference(self):
         """Load Samsung TV key reference data for tooltips"""
@@ -1209,23 +2101,32 @@ class ModernSamsungRemote:
 
     def toggle_tooltips(self):
         """Toggle tooltips on/off"""
-        self.config["tooltips_enabled"] = self.tooltips_var.get()
+        global_settings = self.config.setdefault('global_settings', {})
+        global_settings['tooltips_enabled'] = self.tooltips_var.get()
         self.save_config()
         logging.info(f"Tooltips {'enabled' if self.tooltips_var.get() else 'disabled'}")
+
+    def _are_tooltips_enabled(self):
+        """Check if tooltips are enabled in global settings"""
+        global_settings = self.config.get('global_settings', {})
+        return global_settings.get('tooltips_enabled', True)
 
     def update_ip(self):
         new_ip = self.ip_entry.get()
         if new_ip:
-            self.config["host"] = new_ip
-            self.save_config()
-            logging.info(f"TV IP updated to: {new_ip}")
-            try:
-                if self.root and self.root.winfo_exists():
-                    messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
-            except Exception as dialog_error:
-                logging.error(f"Failed to show IP update dialog: {dialog_error}")
-            # Reconnect with new IP
-            self.connect_to_tv()
+            # Update current profile's host
+            current_profile = self.config.get('current_profile', 'Default TV')
+            if current_profile in self.config.get('profiles', {}):
+                self.config['profiles'][current_profile]['host'] = new_ip
+                self.save_config()
+                logging.info(f"TV IP updated to: {new_ip} for profile: {current_profile}")
+                try:
+                    if self.root and self.root.winfo_exists():
+                        messagebox.showinfo("Updated", f"TV IP updated to {new_ip}")
+                except Exception as dialog_error:
+                    logging.error(f"Failed to show IP update dialog: {dialog_error}")
+                # Reconnect with new IP
+                self.connect_to_tv()
         else:
             logging.warning("Attempted to update IP with empty value")
             try:
@@ -1853,10 +2754,12 @@ class ModernSamsungRemote:
             self.ip_entry.delete(0, tk.END)
             self.ip_entry.insert(0, ip)
             
-            # Update config
-            self.config["host"] = ip
-            self.config["port"] = port
-            self.config["method"] = method
+            # Update current profile config
+            current_profile = self.config.get('current_profile', 'Default TV')
+            if current_profile in self.config.get('profiles', {}):
+                self.config['profiles'][current_profile]['host'] = ip
+                self.config['profiles'][current_profile]['port'] = port
+                self.config['profiles'][current_profile]['method'] = method
             
             # Save config
             self.save_config()
@@ -2185,7 +3088,8 @@ class ModernSamsungRemote:
     def _save_discovery_subnets(self, subnets):
         """Save discovery subnets to configuration"""
         self.discovery_subnets = subnets
-        self.config['discovery_subnets'] = subnets
+        global_settings = self.config.setdefault('global_settings', {})
+        global_settings['discovery_subnets'] = subnets
         self.save_config()
         logging.info(f"Saved {len(subnets)} discovery subnets to configuration")
 
